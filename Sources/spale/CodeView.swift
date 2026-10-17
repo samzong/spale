@@ -356,9 +356,10 @@ final class FileSection: Surface, NSTextViewDelegate {
             }
         }
     }
+    private var showsConflict: Bool { buffer.unavailable ? full || buffer.isDocumentEdited : buffer.conflict }
     private func configureConflict() {
         conflictBar.subviews.forEach { $0.removeFromSuperview() }
-        conflictBar.isHidden = !buffer.conflict && !buffer.unavailable
+        conflictBar.isHidden = !showsConflict
         guard !conflictBar.isHidden else { return }
         let title = label(buffer.unavailable ? "File unavailable" : "Changed on disk", color: Theme.modify)
         let keep = ActionButton("Keep my version") { [weak self] in self?.buffer.saveNow { _ in } }
@@ -375,7 +376,7 @@ final class FileSection: Surface, NSTextViewDelegate {
         header.frame = NSRect(x: 0, y: 0, width: width, height: topPadding)
         headerButton.frame = NSRect(x: 16, y: 8, width: max(0, width - 148), height: 32)
         counts.frame = NSRect(x: max(16, width - 120), y: 8, width: 104, height: 32)
-        let bannerHeight: CGFloat = (buffer.conflict || buffer.unavailable) && !collapsed ? 38 : 0
+        let bannerHeight: CGFloat = showsConflict && !collapsed ? 38 : 0
         conflictBar.frame = NSRect(x: 0, y: topPadding, width: width, height: bannerHeight)
         code.isHidden = collapsed
         code.frame = NSRect(x: 0, y: topPadding + bannerHeight, width: width, height: 18)
@@ -395,7 +396,7 @@ final class FileSection: Surface, NSTextViewDelegate {
         buffer.replace(edit.range, with: replacementString, manager: buffer.undoManager)
         return false
     }
-    func undoManager(for view: NSTextView) -> UndoManager? { buffer.undoManager }
+    func undoManager(for view: NSTextView) -> UndoManager? { buffer.unavailable ? nil : buffer.undoManager }
     func textViewDidChangeSelection(_ notification: Notification) { if !applying { onFocus?() } }
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         if commandSelector == #selector(NSResponder.insertTab(_:)) {

@@ -17,10 +17,10 @@ final class FileBuffer: NSDocument {
 
     override init() { super.init() }
 
-    convenience init(url: URL?, data: Data, register: Bool = true) {
+    convenience init(url: URL?, data: Data?, register: Bool = true) {
         self.init()
         fileURL = url; fileType = "public.plain-text"
-        content = TextContent(data); text = content.text; diskData = data
+        _ = receive(data)
         if let url { path = url.path }
         if register { NSDocumentController.shared.addDocument(self) }
     }
@@ -32,7 +32,7 @@ final class FileBuffer: NSDocument {
     override func data(ofType typeName: String) throws -> Data { content.encode(text) }
 
     private func validateDestination(_ url: URL) throws {
-        guard content.editable else { throw CocoaError(.fileWriteNoPermission) }
+        guard content.editable, !unavailable || isDocumentEdited else { throw CocoaError(.fileWriteNoPermission) }
         guard !Git.isMetadata(url) else {
             throw NSError(domain: "us.samzong.spale", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "Git metadata is read-only.",
@@ -62,12 +62,12 @@ final class FileBuffer: NSDocument {
         let changed = data != diskData
         diskData = data
         if isDocumentEdited { conflict = conflict || changed }
-        else { content = TextContent(data); text = content.text; undoManager?.removeAllActions() }
+        else if changed { content = TextContent(data); text = content.text; undoManager?.removeAllActions() }
         return true
     }
 
     func replace(_ range: NSRange, with replacement: String, manager: UndoManager?) {
-        guard content.editable, NSMaxRange(range) <= (text as NSString).length else { return }
+        guard !unavailable, content.editable, NSMaxRange(range) <= (text as NSString).length else { return }
         let old = (text as NSString).substring(with: range)
         let newRange = NSRange(location: range.location, length: (replacement as NSString).length)
         manager?.registerUndo(withTarget: self) { target in target.replace(newRange, with: old, manager: manager) }
@@ -77,7 +77,7 @@ final class FileBuffer: NSDocument {
     }
 
     func saveNow(completion: @escaping (Bool) -> Void) {
-        guard content.editable else { completion(false); return }
+        guard content.editable, !unavailable || isDocumentEdited else { completion(false); return }
         if let url = fileURL { save(to: url, completion: completion) }
         else { saveAsNow(completion: completion) }
     }
@@ -94,6 +94,7 @@ final class FileBuffer: NSDocument {
     }
 
     func saveAsNow(completion: @escaping (Bool) -> Void) {
+        guard content.editable, !unavailable || isDocumentEdited else { completion(false); return }
         let panel = NSSavePanel()
         panel.nameFieldStringValue = fileURL?.lastPathComponent ?? "Untitled"
         panel.begin { [weak self] result in

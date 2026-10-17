@@ -86,7 +86,7 @@ Directory listings and direct-child emptiness checks run on a background queue. 
 
 FSEvents refreshes expanded directories and open buffers. Tree refreshes run one at a time and merge pending requests into one follow-up refresh. Events only inside Git metadata do not refresh the tree. An empty root shows `This folder is empty.` Expansion and collapse use 380 ms and the existing ease curve; Reduce Motion disables animation. Unavailable directories show `This folder is unavailable.` They keep a disclosure arrow instead of appearing empty. Window restoration uses AppKit state for the root, selected file, sidebar visibility, expanded directories, and collapsed `FILES` heading. No separate persistence layer is used.
 
-When an open file becomes unavailable, the reader preserves its last content and unsaved edits. It shows `File unavailable` and disables editing. `Use disk version` is unavailable until the file can be read again. For unsaved edits, `Keep my version` saves the preserved text.
+If a file cannot be read when opened, it starts unavailable and cannot be edited or saved. An empty file is available. When an open file becomes unavailable, the reader preserves its last content and unsaved edits. Editing, Undo, and Redo stay disabled until the file is available again. The undo history is preserved. The reader shows `File unavailable` in full-file views and for unsaved edits. A clean Deleted block in a change stream has no unavailable banner. `Use disk version` is unavailable until the file can be read again. For unsaved edits, `Keep my version` saves the preserved text.
 
 ### Single-file windows
 

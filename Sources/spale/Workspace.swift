@@ -119,7 +119,7 @@ final class Workspace: NSWindowController, NSWindowDelegate {
             }
             refresh()
         } else {
-            let initial = data ?? file.flatMap { try? Data(contentsOf: $0) } ?? Data()
+            let initial = data ?? (file == nil ? Data() : file.flatMap { try? Data(contentsOf: $0) })
             standalone = FileBuffer(url: file, data: initial)
             standalone?.didChange = { [weak self] in self?.renderStandalone() }
             if let file { watcher = Watcher(paths: [file.deletingLastPathComponent().path]) { [weak self] _ in
@@ -229,7 +229,7 @@ final class Workspace: NSWindowController, NSWindowDelegate {
 
     func buffer(for path: String) -> FileBuffer {
         if let buffer = buffers[path] { return buffer }
-        let buffer = FileBuffer(url: root?.appendingPathComponent(path), data: snapshot?.files[path] ?? root.flatMap { try? Data(contentsOf: $0.appendingPathComponent(path)) } ?? Data())
+        let buffer = FileBuffer(url: root?.appendingPathComponent(path), data: snapshot?.files[path] ?? root.flatMap { try? Data(contentsOf: $0.appendingPathComponent(path)) })
         buffer.path = path
         bind(buffer)
         buffers[path] = buffer
@@ -538,7 +538,8 @@ final class Workspace: NSWindowController, NSWindowDelegate {
         guard var path, let root else { return }
         let url = root.appendingPathComponent(path).resolvingSymlinksInPath()
         var directory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &directory), !directory.boolValue, !Git.isMetadata(url) else { return }
+        let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &directory)
+        guard exists || buffers[path] != nil, !directory.boolValue, !Git.isMetadata(url) else { return }
         guard url.path.hasPrefix(root.path + "/") else { AppDelegate.shared?.open(url); return }
         path = String(url.path.dropFirst(root.path.count + 1))
         scrollPositions[stateKey] = reader.contentView.bounds.origin

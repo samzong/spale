@@ -126,7 +126,7 @@ final class DocumentController: NSDocumentController {
     override func noteNewRecentDocumentURL(_ url: URL) {}
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     static var shared: AppDelegate?
     var workspaces: [Workspace] = []
     var emptyWindow: NSWindow?
@@ -211,8 +211,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func saveDocument(_ sender: Any?) { active?.saveDocument(sender) }
     @objc func saveDocumentAs(_ sender: Any?) { active?.saveDocumentAs(sender) }
     @objc func toggleSidebar(_ sender: Any?) { active?.toggleSidebar(sender) }
-    @objc func undo(_ sender: Any?) { active?.visibleSections.first(where: { $0.code === NSApp.keyWindow?.firstResponder })?.buffer.undoManager?.undo() }
-    @objc func redo(_ sender: Any?) { active?.visibleSections.first(where: { $0.code === NSApp.keyWindow?.firstResponder })?.buffer.undoManager?.redo() }
+    var editingBuffer: FileBuffer? { active?.visibleSections.first(where: { $0.code === NSApp.keyWindow?.firstResponder })?.buffer }
+    @objc func undo(_ sender: Any?) {
+        guard let buffer = editingBuffer, !buffer.unavailable else { return }
+        buffer.undoManager?.undo()
+    }
+    @objc func redo(_ sender: Any?) {
+        guard let buffer = editingBuffer, !buffer.unavailable else { return }
+        buffer.undoManager?.redo()
+    }
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(undo(_:)) { return editingBuffer.map { !$0.unavailable && $0.undoManager?.canUndo == true } ?? false }
+        if item.action == #selector(redo(_:)) { return editingBuffer.map { !$0.unavailable && $0.undoManager?.canRedo == true } ?? false }
+        return true
+    }
     var active: Workspace? { workspaces.first { $0.window === NSApp.keyWindow } }
     func makeMenu() {
         let menu = NSMenu()
