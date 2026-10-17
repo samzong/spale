@@ -28,9 +28,8 @@ let windows = [];
 let activeWindow;
 let nextWindow = 1;
 let composing = false;
-let sidebarLayout = 'sections';
-let sidebarPanel = 'changes';
-let treeStatus = false;
+let emptyFolderStyle = 'leaf';
+let hiddenItemStyle = 'muted';
 const linesOf = text => text.replace(/\n$/, '').split('\n');
 const dirty = file => file.full !== file.disk;
 const dirtyMark = file => dirty(file) ? '<span class="unsaved" aria-label="Unsaved changes">●</span>' : '';
@@ -815,6 +814,7 @@ function makeWindow(repo, worktree, branch, source, single = false) {
 function makeDemoWindow(worktree = data.repo, branch = 'main') {
   const win = makeWindow(data.repo, worktree, branch, data.files);
   win.agentData = { updated: data.updated, live: data.live, initial: data.files.find(file => file.path === data.updated.path).full };
+  win.directories = data.treeDirectories;
   for (const item of data.treeFiles) {
     if (!win.files.some(file => file.path === item.path)) win.files.push(initialize(sample(item.path, item.full, item.full)));
   }
@@ -824,6 +824,7 @@ function makeDemoWindow(worktree = data.repo, branch = 'main') {
 function makeFolderWindow() {
   const win = makeWindow('Harbor', 'Harbor', '', data.folderFiles.map(item => sample(item.path, item.full, item.full)));
   win.folder = true;
+  win.directories = data.folderDirectories;
   win.treeSelected = true;
   win.flows.Unstaged.mode = 'full';
   return win;
@@ -1198,47 +1199,50 @@ $('#stage').onclick = () => {
 };
 
 function updateSidebarLayout() {
-  const folder = activeWindow?.folder;
-  const tabs = sidebarLayout === 'tabs' && !folder;
-  document.querySelector('aside').classList.toggle('tab-layout', tabs);
-  $('#sidebar-tabs').hidden = !tabs;
-  $('#changes-panel').hidden = folder || (tabs && sidebarPanel !== 'changes');
-  $('#tree-panel').hidden = activeWindow?.single || (tabs && sidebarPanel !== 'tree');
-  const expanded = tabs || $('#tree-heading').getAttribute('aria-expanded') === 'true';
+  $('#changes-panel').hidden = !!activeWindow?.folder;
+  $('#tree-panel').hidden = !!activeWindow?.single;
+  const expanded = $('#tree-heading').getAttribute('aria-expanded') === 'true';
   $('#tree-body').classList.toggle('collapsed', !expanded);
   $('#tree-body').inert = !expanded;
-  $('#tree-heading').hidden = tabs;
-  $('#sidebar-tabs').querySelectorAll('button').forEach(button => {
-    button.setAttribute('aria-pressed', String(button.dataset.panel === sidebarPanel));
-  });
-  $('#layout-choice').textContent = sidebarLayout === 'sections' ? 'A · Sections' : 'B · Switcher';
 }
 
 function renderTree() {
-  activeWindow.expandedFolders ??= new Set(activeWindow.folder ? ['Notes'] : ['cmd', 'cmd/ledger']);
+  activeWindow.expandedFolders ??= new Set(['.github', '.vscode', 'Archive', 'build']);
   const root = { children: new Map() };
-  files.forEach((file, index) => {
-    if (!file.workExists) return;
+  const add = (path, index) => {
     let parent = root;
-    file.path.split('/').forEach((name, depth, parts) => {
+    path.split('/').forEach((name, depth, parts) => {
       if (!parent.children.has(name)) parent.children.set(name, { name, path: parts.slice(0, depth + 1).join('/'), children: new Map() });
       parent = parent.children.get(name);
-      if (depth === parts.length - 1) parent.index = index;
+      if (index !== undefined && depth === parts.length - 1) parent.index = index;
     });
+  };
+  (activeWindow.directories || []).forEach(path => add(path));
+  files.forEach((file, index) => {
+    if (file.workExists) add(file.path, index);
   });
   const children = (parent, depth = 0) => [...parent.children.values()]
-    .sort((a, b) => Number(b.index === undefined) - Number(a.index === undefined) || a.name.localeCompare(b.name))
+    .sort((a, b) => {
+      const folders = Number(b.index === undefined) - Number(a.index === undefined);
+      const left = a.name.toLowerCase();
+      const right = b.name.toLowerCase();
+      return folders || (left < right ? -1 : left > right ? 1 : 0);
+    })
     .map(node => {
       const folder = node.index === undefined;
-      const expanded = activeWindow.expandedFolders.has(node.path);
+      const empty = folder && node.children.size === 0;
+      const expandable = folder && (!empty || emptyFolderStyle === 'message');
+      const expanded = expandable && activeWindow.expandedFolders.has(node.path);
+      const hidden = hiddenItemStyle === 'muted' && node.name.startsWith('.');
       const file = files[node.index];
-      const status = file && !activeWindow.folder && !clean ? groupStatus(file, 'Unstaged') || groupStatus(file, 'Staged') : '';
-      return `<div class="tree-node"><button class="tree-row ${!folder && activeWindow.treeSelected && current === node.index ? 'active' : ''}" style="--depth:${depth}" ${folder ? `data-folder="${esc(node.path)}" aria-expanded="${expanded}"` : `data-tree-file="${node.index}"`} title="${esc(node.path)}">
-        <span class="tree-chevron ${folder && expanded ? 'open' : ''}">${folder ? '›' : ''}</span>
+      const attributes = folder
+        ? expandable ? `data-folder="${esc(node.path)}" aria-expanded="${expanded}"` : 'aria-disabled="true"'
+        : `data-tree-file="${node.index}"`;
+      return `<div class="tree-node"><button class="tree-row ${hidden ? 'hidden-item' : ''} ${!folder && activeWindow.treeSelected && current === node.index ? 'active' : ''}" style="--depth:${depth}" ${attributes} title="${esc(node.path)}">
+        <span class="tree-chevron ${expanded ? 'open' : ''}">${expandable ? '›' : ''}</span>
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="${folder ? 'M2 4h5l1.5 2H14v7H2z' : 'M4 2h5l3 3v9H4z M9 2v4h3'}"/></svg>
-        <span class="tree-name">${esc(node.name)}</span>${file ? dirtyMark(file) : ''}
-        ${treeStatus && status ? `<span class="tree-status" data-status="${status}">${status}</span>` : ''}</button>
-        ${folder ? `<div class="tree-children ${expanded ? 'open' : ''}"><div>${children(node, depth + 1)}</div></div>` : ''}</div>`;
+        <span class="tree-name">${esc(node.name)}</span>${file ? dirtyMark(file) : ''}</button>
+        ${expandable ? `<div class="tree-children ${expanded ? 'open' : ''}"><div>${empty ? `<div class="tree-empty" style="--depth:${depth + 1}">Empty</div>` : children(node, depth + 1)}</div></div>` : ''}</div>`;
     }).join('');
   $('#tree').innerHTML = children(root);
   $('#tree').querySelectorAll('[data-folder]').forEach(button => button.onclick = () => {
@@ -1261,24 +1265,20 @@ function renderTree() {
   updateSidebarLayout();
 }
 
-$('#layout-choice').onclick = () => {
-  sidebarLayout = sidebarLayout === 'sections' ? 'tabs' : 'sections';
-  updateSidebarLayout();
-};
 $('#context-choice').onclick = () => {
   const target = windows.find(win => activeWindow.folder ? !win.folder && !win.single : win.folder);
   if (target) activateWindow(target.id);
 };
-$('#tree-status').onclick = () => {
-  treeStatus = !treeStatus;
-  $('#tree-status').textContent = `Tree status: ${treeStatus ? 'on' : 'off'}`;
-  $('#tree-status').setAttribute('aria-pressed', String(treeStatus));
+$('#empty-choice').onclick = () => {
+  emptyFolderStyle = emptyFolderStyle === 'leaf' ? 'message' : 'leaf';
+  $('#empty-choice').textContent = `Empty: ${emptyFolderStyle === 'leaf' ? 'no arrow' : 'expand + message'}`;
   renderTree();
 };
-$('#sidebar-tabs').querySelectorAll('button').forEach(button => button.onclick = () => {
-  sidebarPanel = button.dataset.panel;
-  updateSidebarLayout();
-});
+$('#hidden-choice').onclick = () => {
+  hiddenItemStyle = hiddenItemStyle === 'muted' ? 'regular' : 'muted';
+  $('#hidden-choice').textContent = `Hidden: ${hiddenItemStyle === 'muted' ? 'muted' : 'regular'}`;
+  renderTree();
+};
 $('#tree-heading').onclick = () => {
   const expanded = $('#tree-heading').getAttribute('aria-expanded') !== 'true';
   $('#tree-heading').setAttribute('aria-expanded', String(expanded));

@@ -34,10 +34,6 @@
           </header>
           <div class="body">
             <aside>
-              <div id="sidebar-tabs" aria-label="Sidebar views" hidden>
-                <button data-panel="changes">CHANGED FILES</button>
-                <button data-panel="tree">FILES</button>
-              </div>
               <section id="changes-panel" aria-label="Changed files">
               <div class="side-heading">
                 <span>CHANGED FILES</span>
@@ -65,9 +61,9 @@
         <footer class="harness">
           <span>spale <span class="dim">/</span> sidebar study</span>
           <div class="study-controls">
-            <button id="layout-choice" title="Compare sidebar layouts">A · Sections</button>
             <button id="context-choice">Git repository</button>
-            <button id="tree-status" aria-pressed="false">Tree status: off</button>
+            <button id="empty-choice" title="Compare empty folders">Empty: no arrow</button>
+            <button id="hidden-choice" title="Compare hidden items">Hidden: muted</button>
           </div>
           <div>
             <details class="simulation"><summary>Simulate</summary><div>

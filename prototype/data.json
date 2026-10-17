@@ -1629,7 +1629,7 @@
     },
     {
       "path": ".gitignore",
-      "full": ".local/\n"
+      "full": "build/\n"
     },
     {
       "path": "internal/report/format.go",
@@ -1642,6 +1642,26 @@
     {
       "path": "docs/format.md",
       "full": "# Format\n\nKeep one payment on each row.\n"
+    },
+    {
+      "path": ".editorconfig",
+      "full": "root = true\n\n[*]\nindent_style = space\nindent_size = 2\n"
+    },
+    {
+      "path": ".env.example",
+      "full": "APP_NAME=Harbor\nAPP_ENV=example\n"
+    },
+    {
+      "path": ".github/CONTRIBUTING.md",
+      "full": "# Contributing\n\nKeep examples small and clear.\n"
+    },
+    {
+      "path": ".vscode/settings.json",
+      "full": "{\n  \"editor.tabSize\": 2\n}\n"
+    },
+    {
+      "path": "build/summary.txt",
+      "full": "Example output for the monthly report.\n"
     }
   ],
   "folderFiles": [
@@ -1660,6 +1680,38 @@
     {
       "path": "Read me.txt",
       "full": "Open a folder. Pick a file. Start writing.\n"
+    },
+    {
+      "path": ".editorconfig",
+      "full": "root = true\n\n[*]\nindent_style = space\nindent_size = 2\n"
+    },
+    {
+      "path": ".env.example",
+      "full": "APP_NAME=Harbor\nAPP_ENV=example\n"
+    },
+    {
+      "path": ".github/CONTRIBUTING.md",
+      "full": "# Contributing\n\nKeep examples small and clear.\n"
+    },
+    {
+      "path": ".vscode/settings.json",
+      "full": "{\n  \"editor.tabSize\": 2\n}\n"
+    },
+    {
+      "path": "build/summary.txt",
+      "full": "Example output for the monthly report.\n"
+    },
+    {
+      "path": ".gitignore",
+      "full": "build/\n"
     }
+  ],
+  "treeDirectories": [
+    "Empty",
+    "Archive/Empty"
+  ],
+  "folderDirectories": [
+    "Empty",
+    "Archive/Empty"
   ]
 }
