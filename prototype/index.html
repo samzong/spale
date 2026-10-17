@@ -34,6 +34,11 @@
           </header>
           <div class="body">
             <aside>
+              <div id="sidebar-tabs" aria-label="Sidebar views" hidden>
+                <button data-panel="changes">CHANGED FILES</button>
+                <button data-panel="tree">FILES</button>
+              </div>
+              <section id="changes-panel" aria-label="Changed files">
               <div class="side-heading">
                 <span>CHANGED FILES</span>
                 <span id="file-count">
@@ -41,6 +46,11 @@
               </div>
               <nav id="files" aria-label="Changed files">
               </nav>
+              </section>
+              <section id="tree-panel" aria-label="Files">
+                <button id="tree-heading" class="side-heading" aria-expanded="true"><span>FILES</span><span class="tree-chevron">›</span></button>
+                <div id="tree-body"><nav id="tree" aria-label="Folder contents"></nav></div>
+              </section>
             </aside>
             <main id="reader" tabindex="0" aria-label="Continuous changes">
               <div id="stream">
@@ -53,17 +63,25 @@
           <nav id="windows" aria-label="Open spale windows"></nav>
         </div>
         <footer class="harness">
-          <span>spale <span class="dim">/</span> interactive prototype</span>
+          <span>spale <span class="dim">/</span> sidebar study</span>
+          <div class="study-controls">
+            <button id="layout-choice" title="Compare sidebar layouts">A · Sections</button>
+            <button id="context-choice">Git repository</button>
+            <button id="tree-status" aria-pressed="false">Tree status: off</button>
+          </div>
           <div>
+            <details class="simulation"><summary>Simulate</summary><div>
             <button id="open-window">打开窗口</button>
             <button id="close-window">关闭当前窗口</button>
             <button id="new-file">新文件</button>
             <button id="stage">git add 当前文件</button>
-            <button id="appearance" title="Change appearance">System</button>
+
             <button id="simulate" title="Simulate an agent update">Agent update
           </button>
           <button id="clean" title="Toggle clean state">Clean state
         </button>
+            </div></details>
+            <button id="appearance" title="Change appearance">System</button>
       </div>
     </footer>
     <script src="app.js">
