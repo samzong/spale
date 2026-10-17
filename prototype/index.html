@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>spale</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <div class="window" aria-label="spale change reader">
+      <header class="chrome">
+        <div class="lights" aria-hidden="true">
+          <i>
+          </i>
+          <i>
+          </i>
+          <i>
+          </i>
+        </div>
+        <div class="workspace" id="workspace">spale</div>
+            <div class="chrome-main">
+              <button id="back" class="icon" title="Back to changes (Esc)" aria-label="Back to changes" hidden>
+              </button>
+              <div class="nav">
+                <button id="prev" class="icon" title="Previous change" aria-label="Previous change">
+                </button>
+                <button id="next" class="icon" title="Next change" aria-label="Next change">
+                </button>
+                <button id="full" class="icon" title="Read full file" aria-label="Read full file">
+                </button>
+              </div>
+            </div>
+          </header>
+          <div class="body">
+            <aside>
+              <div class="side-heading">
+                <span>CHANGED FILES</span>
+                <span id="file-count">
+                </span>
+              </div>
+              <nav id="files" aria-label="Changed files">
+              </nav>
+            </aside>
+            <main id="reader" tabindex="0" aria-label="Continuous changes">
+              <div id="stream">
+              </div>
+              <div id="fullfile" hidden>
+              </div>
+              <div id="empty" hidden>No changes. A little room to think.</div>
+            </main>
+          </div>
+          <nav id="windows" aria-label="Open spale windows"></nav>
+        </div>
+        <footer class="harness">
+          <span>spale <span class="dim">/</span> interactive prototype</span>
+          <div>
+            <button id="open-window">打开窗口</button>
+            <button id="close-window">关闭当前窗口</button>
+            <button id="new-file">新文件</button>
+            <button id="stage">git add 当前文件</button>
+            <button id="appearance" title="Change appearance">System</button>
+            <button id="simulate" title="Simulate an agent update">Agent update
+          </button>
+          <button id="clean" title="Toggle clean state">Clean state
+        </button>
+      </div>
+    </footer>
+    <script src="app.js">
+    </script>
+  </body>
+</html>

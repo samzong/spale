@@ -1,0 +1,1625 @@
+{
+  "repo": "ledger",
+  "files": [
+    {
+      "path": "cmd/ledger/main.go",
+      "status": "M",
+      "headExists": true,
+      "indexExists": true,
+      "workExists": true,
+      "head": "package main\n\nimport (\n\t\"encoding/csv\"\n\t\"errors\"\n\t\"flag\"\n\t\"fmt\"\n\t\"io\"\n\t\"os\"\n\t\"sort\"\n\t\"strconv\"\n\t\"strings\"\n\t\"time\"\n)\n\ntype entry struct {\n\tDate     time.Time\n\tAccount  string\n\tCategory string\n\tCents    int64\n\tNote     string\n}\n\ntype options struct {\n\tFile     string\n\tMonth    string\n\tAccount  string\n\tCategory string\n\tLimit    int\n}\n\nfunc main() {\n\tif err := run(os.Args[1:], os.Stdout); err != nil {\n\t\tfmt.Fprintln(os.Stderr, err)\n\t\tos.Exit(1)\n\t}\n}\n\nfunc parseOptions(args []string) (options, error) {\n\tvar opts options\n\tflags := flag.NewFlagSet(\"ledger\", flag.ContinueOnError)\n\tflags.StringVar(&opts.File, \"file\", \"ledger.csv\", \"Path to the account book\")\n\tflags.StringVar(&opts.Month, \"month\", \"\", \"Month in YYYY-MM form\")\n\tflags.StringVar(&opts.Account, \"account\", \"\", \"Account name\")\n\tflags.StringVar(&opts.Category, \"category\", \"\", \"Category name\")\n\tflags.IntVar(&opts.Limit, \"limit\", 20, \"Maximum number of entries\")\n\tif err := flags.Parse(args); err != nil {\n\t\treturn opts, err\n\t}\n\tif opts.Limit < 1 {\n\t\treturn opts, errors.New(\"limit must be positive\")\n\t}\n\tif opts.Month != \"\" {\n\t\tif _, err := time.Parse(\"2006-01\", opts.Month); err != nil {\n\t\t\treturn opts, errors.New(\"month must use YYYY-MM\")\n\t\t}\n\t}\n\treturn opts, nil\n}\n\nfunc run(args []string, output io.Writer) error {\n\topts, err := parseOptions(args)\n\tif err != nil {\n\t\treturn err\n\t}\n\tfile, err := os.Open(opts.File)\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer file.Close()\n\tentries, err := readEntries(file)\n\tif err != nil {\n\t\treturn err\n\t}\n\tentries = filterEntries(entries, opts)\n\tsort.SliceStable(entries, func(i, j int) bool {\n\t\treturn entries[i].Date.Before(entries[j].Date)\n\t})\n\tif len(entries) > opts.Limit {\n\t\tentries = entries[:opts.Limit]\n\t}\n\treturn writeEntries(output, entries)\n}\n\nfunc readEntries(input io.Reader) ([]entry, error) {\n\treader := csv.NewReader(input)\n\treader.FieldsPerRecord = 5\n\theader, err := reader.Read()\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tif strings.Join(header, \",\") != \"date,account,category,amount,note\" {\n\t\treturn nil, errors.New(\"unexpected account book columns\")\n\t}\n\tvar entries []entry\n\tfor row := 2; ; row++ {\n\t\trecord, err := reader.Read()\n\t\tif err == io.EOF {\n\t\t\treturn entries, nil\n\t\t}\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"row %d: %w\", row, err)\n\t\t}\n\t\titem, err := parseEntry(record)\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"row %d: %w\", row, err)\n\t\t}\n\t\tentries = append(entries, item)\n\t}\n}\n\nfunc parseEntry(record []string) (entry, error) {\n\tvar item entry\n\tdate, err := time.Parse(\"2006-01-02\", record[0])\n\tif err != nil {\n\t\treturn item, errors.New(\"date must use YYYY-MM-DD\")\n\t}\n\tcents, err := parseAmount(record[3])\n\tif err != nil {\n\t\treturn item, err\n\t}\n\titem.Date = date\n\titem.Account = record[1]\n\titem.Category = record[2]\n\titem.Cents = cents\n\titem.Note = record[4]\n\tif item.Account == \"\" {\n\t\treturn item, errors.New(\"account is required\")\n\t}\n\treturn item, nil\n}\n\nfunc parseAmount(text string) (int64, error) {\n\tnegative := strings.HasPrefix(text, \"-\")\n\tif negative {\n\t\ttext = strings.TrimPrefix(text, \"-\")\n\t}\n\tparts := strings.Split(text, \".\")\n\tif len(parts) > 2 || parts[0] == \"\" {\n\t\treturn 0, errors.New(\"invalid amount\")\n\t}\n\twhole, err := strconv.ParseInt(parts[0], 10, 64)\n\tif err != nil || whole < 0 || whole > 9000000000 {\n\t\treturn 0, errors.New(\"amount is outside the supported range\")\n\t}\n\tfraction := \"00\"\n\tif len(parts) == 2 {\n\t\tfraction = parts[1]\n\t\tif len(fraction) == 1 {\n\t\t\tfraction += \"0\"\n\t\t}\n\t\tif len(fraction) != 2 {\n\t\t\treturn 0, errors.New(\"amount needs at most two decimal places\")\n\t\t}\n\t}\n\tcents, err := strconv.ParseInt(fraction, 10, 64)\n\tif err != nil || cents < 0 || cents > 99 {\n\t\treturn 0, errors.New(\"invalid decimal amount\")\n\t}\n\tcents += whole * 100\n\tif negative {\n\t\tcents = -cents\n\t}\n\treturn cents, nil\n}\n\nfunc filterEntries(entries []entry, opts options) []entry {\n\tresult := make([]entry, 0, len(entries))\n\tfor _, item := range entries {\n\t\tif opts.Month != \"\" && item.Date.Format(\"2006-01\") != opts.Month {\n\t\t\tcontinue\n\t\t}\n\t\tif opts.Account != \"\" && item.Account != opts.Account {\n\t\t\tcontinue\n\t\t}\n\t\tif opts.Category != \"\" && item.Category != opts.Category {\n\t\t\tcontinue\n\t\t}\n\t\tresult = append(result, item)\n\t}\n\treturn result\n}\n\nfunc writeEntries(output io.Writer, entries []entry) error {\n\twriter := csv.NewWriter(output)\n\tif err := writer.Write([]string{\"date\", \"account\", \"category\", \"amount\", \"note\"}); err != nil {\n\t\treturn err\n\t}\n\tfor _, item := range entries {\n\t\trecord := []string{\n\t\t\titem.Date.Format(\"2006-01-02\"),\n\t\t\titem.Account,\n\t\t\titem.Category,\n\t\t\tformatAmount(item.Cents),\n\t\t\titem.Note,\n\t\t}\n\t\tif err := writer.Write(record); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n\twriter.Flush()\n\treturn writer.Error()\n}\n\nfunc formatAmount(cents int64) string {\n\tsign := \"\"\n\tif cents < 0 {\n\t\tsign = \"-\"\n\t\tcents = -cents\n\t}\n\treturn fmt.Sprintf(\"%s%d.%02d\", sign, cents/100, cents%100)\n}\n",
+      "index": "package main\n\nimport (\n\t\"encoding/csv\"\n\t\"errors\"\n\t\"flag\"\n\t\"fmt\"\n\t\"io\"\n\t\"os\"\n\t\"sort\"\n\t\"strconv\"\n\t\"strings\"\n\t\"time\"\n)\n\ntype entry struct {\n\tDate     time.Time\n\tAccount  string\n\tCategory string\n\tCents    int64\n\tNote     string\n}\n\ntype options struct {\n\tFile     string\n\tMonth    string\n\tAccount  string\n\tCategory string\n\tLimit    int\n}\n\nfunc main() {\n\tif err := run(os.Args[1:], os.Stdout); err != nil {\n\t\tfmt.Fprintln(os.Stderr, err)\n\t\tos.Exit(1)\n\t}\n}\n\nfunc parseOptions(args []string) (options, error) {\n\tvar opts options\n\tflags := flag.NewFlagSet(\"ledger\", flag.ContinueOnError)\n\tflags.StringVar(&opts.File, \"file\", \"ledger.csv\", \"Path to the account book\")\n\tflags.StringVar(&opts.Month, \"month\", \"\", \"Month in YYYY-MM form\")\n\tflags.StringVar(&opts.Account, \"account\", \"\", \"Account name\")\n\tflags.StringVar(&opts.Category, \"category\", \"\", \"Category name\")\n\tflags.IntVar(&opts.Limit, \"limit\", 50, \"Maximum number of entries\")\n\tif err := flags.Parse(args); err != nil {\n\t\treturn opts, err\n\t}\n\tif opts.Limit < 1 {\n\t\treturn opts, errors.New(\"limit must be positive\")\n\t}\n\tif opts.Month != \"\" {\n\t\tif _, err := time.Parse(\"2006-01\", opts.Month); err != nil {\n\t\t\treturn opts, errors.New(\"month must use YYYY-MM\")\n\t\t}\n\t}\n\treturn opts, nil\n}\n\nfunc run(args []string, output io.Writer) error {\n\topts, err := parseOptions(args)\n\tif err != nil {\n\t\treturn err\n\t}\n\tfile, err := os.Open(opts.File)\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer file.Close()\n\tentries, err := readEntries(file)\n\tif err != nil {\n\t\treturn err\n\t}\n\tentries = filterEntries(entries, opts)\n\tsort.SliceStable(entries, func(i, j int) bool {\n\t\treturn entries[i].Date.Before(entries[j].Date)\n\t})\n\tif len(entries) > opts.Limit {\n\t\tentries = entries[:opts.Limit]\n\t}\n\treturn writeEntries(output, entries)\n}\n\nfunc readEntries(input io.Reader) ([]entry, error) {\n\treader := csv.NewReader(input)\n\treader.FieldsPerRecord = 5\n\theader, err := reader.Read()\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tif strings.Join(header, \",\") != \"date,account,category,amount,note\" {\n\t\treturn nil, errors.New(\"unexpected account book columns\")\n\t}\n\tvar entries []entry\n\tfor row := 2; ; row++ {\n\t\trecord, err := reader.Read()\n\t\tif err == io.EOF {\n\t\t\treturn entries, nil\n\t\t}\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"row %d: %w\", row, err)\n\t\t}\n\t\titem, err := parseEntry(record)\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"row %d: %w\", row, err)\n\t\t}\n\t\tentries = append(entries, item)\n\t}\n}\n\nfunc parseEntry(record []string) (entry, error) {\n\tvar item entry\n\tdate, err := time.Parse(\"2006-01-02\", record[0])\n\tif err != nil {\n\t\treturn item, errors.New(\"date must use YYYY-MM-DD\")\n\t}\n\tcents, err := parseAmount(record[3])\n\tif err != nil {\n\t\treturn item, err\n\t}\n\titem.Date = date\n\titem.Account = record[1]\n\titem.Category = record[2]\n\titem.Cents = cents\n\titem.Note = record[4]\n\tif item.Account == \"\" {\n\t\treturn item, errors.New(\"account is required\")\n\t}\n\treturn item, nil\n}\n\nfunc parseAmount(text string) (int64, error) {\n\tnegative := strings.HasPrefix(text, \"-\")\n\tif negative {\n\t\ttext = strings.TrimPrefix(text, \"-\")\n\t}\n\tparts := strings.Split(text, \".\")\n\tif len(parts) > 2 || parts[0] == \"\" {\n\t\treturn 0, errors.New(\"invalid amount\")\n\t}\n\twhole, err := strconv.ParseInt(parts[0], 10, 64)\n\tif err != nil || whole < 0 || whole > 9000000000 {\n\t\treturn 0, errors.New(\"amount is outside the supported range\")\n\t}\n\tfraction := \"00\"\n\tif len(parts) == 2 {\n\t\tfraction = parts[1]\n\t\tif len(fraction) == 1 {\n\t\t\tfraction += \"0\"\n\t\t}\n\t\tif len(fraction) != 2 {\n\t\t\treturn 0, errors.New(\"amount needs at most two decimal places\")\n\t\t}\n\t}\n\tcents, err := strconv.ParseInt(fraction, 10, 64)\n\tif err != nil || cents < 0 || cents > 99 {\n\t\treturn 0, errors.New(\"invalid decimal amount\")\n\t}\n\tcents += whole * 100\n\tif negative {\n\t\tcents = -cents\n\t}\n\treturn cents, nil\n}\n\nfunc filterEntries(entries []entry, opts options) []entry {\n\tresult := make([]entry, 0, len(entries))\n\tfor _, item := range entries {\n\t\tif opts.Month != \"\" && item.Date.Format(\"2006-01\") != opts.Month {\n\t\t\tcontinue\n\t\t}\n\t\tif opts.Account != \"\" && item.Account != opts.Account {\n\t\t\tcontinue\n\t\t}\n\t\tif opts.Category != \"\" && item.Category != opts.Category {\n\t\t\tcontinue\n\t\t}\n\t\tresult = append(result, item)\n\t}\n\treturn result\n}\n\nfunc writeEntries(output io.Writer, entries []entry) error {\n\twriter := csv.NewWriter(output)\n\tif err := writer.Write([]string{\"date\", \"account\", \"category\", \"amount\", \"note\"}); err != nil {\n\t\treturn err\n\t}\n\tfor _, item := range entries {\n\t\trecord := []string{\n\t\t\titem.Date.Format(\"2006-01-02\"),\n\t\t\titem.Account,\n\t\t\titem.Category,\n\t\t\tformatAmount(item.Cents),\n\t\t\titem.Note,\n\t\t}\n\t\tif err := writer.Write(record); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n\twriter.Flush()\n\treturn writer.Error()\n}\n\nfunc formatAmount(cents int64) string {\n\tsign := \"\"\n\tif cents < 0 {\n\t\tsign = \"-\"\n\t\tcents = -cents\n\t}\n\treturn fmt.Sprintf(\"%s%d.%02d\", sign, cents/100, cents%100)\n}\n",
+      "full": "package main\n\nimport (\n\t\"encoding/csv\"\n\t\"errors\"\n\t\"flag\"\n\t\"fmt\"\n\t\"io\"\n\t\"os\"\n\t\"sort\"\n\t\"strconv\"\n\t\"strings\"\n\t\"time\"\n)\n\ntype entry struct {\n\tDate     time.Time\n\tAccount  string\n\tCategory string\n\tCents    int64\n\tNote     string\n}\n\ntype options struct {\n\tFile     string\n\tMonth    string\n\tAccount  string\n\tCategory string\n\tLimit    int\n}\n\nfunc main() {\n\tif err := run(os.Args[1:], os.Stdout); err != nil {\n\t\tfmt.Fprintln(os.Stderr, err)\n\t\tos.Exit(1)\n\t}\n}\n\nfunc parseOptions(args []string) (options, error) {\n\tvar opts options\n\tflags := flag.NewFlagSet(\"ledger\", flag.ContinueOnError)\n\tflags.StringVar(&opts.File, \"file\", \"ledger.csv\", \"Path to the account book\")\n\tflags.StringVar(&opts.Month, \"month\", \"\", \"Month in YYYY-MM form\")\n\tflags.StringVar(&opts.Account, \"account\", \"\", \"Account name\")\n\tflags.StringVar(&opts.Category, \"category\", \"\", \"Category name\")\n\tflags.IntVar(&opts.Limit, \"limit\", 50, \"Maximum number of entries\")\n\tif err := flags.Parse(args); err != nil {\n\t\treturn opts, err\n\t}\n\tif opts.Limit < 1 {\n\t\treturn opts, errors.New(\"limit must be positive\")\n\t}\n\tif opts.Month != \"\" {\n\t\tif _, err := time.Parse(\"2006-01\", opts.Month); err != nil {\n\t\t\treturn opts, errors.New(\"month must use YYYY-MM\")\n\t\t}\n\t}\n\treturn opts, nil\n}\n\nfunc run(args []string, output io.Writer) error {\n\topts, err := parseOptions(args)\n\tif err != nil {\n\t\treturn err\n\t}\n\tfile, err := os.Open(opts.File)\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer file.Close()\n\tentries, err := readEntries(file)\n\tif err != nil {\n\t\treturn err\n\t}\n\tentries = filterEntries(entries, opts)\n\tsort.SliceStable(entries, func(i, j int) bool {\n\t\treturn entries[i].Date.Before(entries[j].Date)\n\t})\n\tif len(entries) > opts.Limit {\n\t\tentries = entries[:opts.Limit]\n\t}\n\treturn writeEntries(output, entries)\n}\n\nfunc readEntries(input io.Reader) ([]entry, error) {\n\treader := csv.NewReader(input)\n\treader.FieldsPerRecord = 5\n\theader, err := reader.Read()\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tif strings.Join(header, \",\") != \"date,account,category,amount,note\" {\n\t\treturn nil, errors.New(\"unexpected account book columns\")\n\t}\n\tvar entries []entry\n\tfor row := 2; ; row++ {\n\t\trecord, err := reader.Read()\n\t\tif err == io.EOF {\n\t\t\treturn entries, nil\n\t\t}\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"row %d: %w\", row, err)\n\t\t}\n\t\titem, err := parseEntry(record)\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"row %d: %w\", row, err)\n\t\t}\n\t\tentries = append(entries, item)\n\t}\n}\n\nfunc parseEntry(record []string) (entry, error) {\n\tvar item entry\n\tdate, err := time.Parse(\"2006-01-02\", record[0])\n\tif err != nil {\n\t\treturn item, errors.New(\"date must use YYYY-MM-DD\")\n\t}\n\tcents, err := parseAmount(record[3])\n\tif err != nil {\n\t\treturn item, err\n\t}\n\titem.Date = date\n\titem.Account = record[1]\n\titem.Category = record[2]\n\titem.Cents = cents\n\titem.Note = record[4]\n\tif item.Account == \"\" {\n\t\treturn item, errors.New(\"account is required\")\n\t}\n\treturn item, nil\n}\n\nfunc parseAmount(text string) (int64, error) {\n\ttext = strings.TrimSpace(text)\n\tnegative := strings.HasPrefix(text, \"-\")\n\tif negative {\n\t\ttext = strings.TrimPrefix(text, \"-\")\n\t}\n\tparts := strings.Split(text, \".\")\n\tif len(parts) > 2 || parts[0] == \"\" {\n\t\treturn 0, errors.New(\"invalid amount\")\n\t}\n\twhole, err := strconv.ParseInt(parts[0], 10, 64)\n\tif err != nil || whole < 0 || whole > 9000000000 {\n\t\treturn 0, errors.New(\"amount is outside the supported range\")\n\t}\n\tfraction := \"00\"\n\tif len(parts) == 2 {\n\t\tfraction = parts[1]\n\t\tif len(fraction) == 1 {\n\t\t\tfraction += \"0\"\n\t\t}\n\t\tif len(fraction) != 2 {\n\t\t\treturn 0, errors.New(\"amount needs at most two decimal places\")\n\t\t}\n\t}\n\tcents, err := strconv.ParseInt(fraction, 10, 64)\n\tif err != nil || cents < 0 || cents > 99 {\n\t\treturn 0, errors.New(\"invalid decimal amount\")\n\t}\n\tcents += whole * 100\n\tif negative {\n\t\tcents = -cents\n\t}\n\treturn cents, nil\n}\n\nfunc filterEntries(entries []entry, opts options) []entry {\n\tresult := make([]entry, 0)\n\tfor _, item := range entries {\n\t\tif opts.Month != \"\" && item.Date.Format(\"2006-01\") != opts.Month {\n\t\t\tcontinue\n\t\t}\n\t\tif opts.Account != \"\" && item.Account != opts.Account {\n\t\t\tcontinue\n\t\t}\n\t\tif opts.Category != \"\" && item.Category != opts.Category {\n\t\t\tcontinue\n\t\t}\n\t\tresult = append(result, item)\n\t}\n\treturn result\n}\n\nfunc writeEntries(output io.Writer, entries []entry) error {\n\twriter := csv.NewWriter(output)\n\tif err := writer.Write([]string{\"date\", \"account\", \"category\", \"amount\", \"note\"}); err != nil {\n\t\treturn err\n\t}\n\tfor _, item := range entries {\n\t\trecord := []string{\n\t\t\titem.Date.Format(\"2006-01-02\"),\n\t\t\titem.Account,\n\t\t\titem.Category,\n\t\t\tformatAmount(item.Cents),\n\t\t\titem.Note,\n\t\t}\n\t\tif err := writer.Write(record); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n\twriter.Flush()\n\treturn writer.Error()\n}\n\nfunc formatAmount(cents int64) string {\n\tsign := \"\"\n\tif cents < 0 {\n\t\tsign = \"-\"\n\t\tcents = -cents\n\t}\n\treturn fmt.Sprintf(\"%s%d.%02d\", sign, cents/100, cents%100)\n}\n",
+      "hunks": [
+        {
+          "id": "cmd-ledger-main.go-h42",
+          "rows": [
+            {
+              "type": " ",
+              "text": "\tflags.StringVar(&opts.Month, \"month\", \"\", \"Month in YYYY-MM form\")",
+              "old": 43,
+              "new": 43
+            },
+            {
+              "type": " ",
+              "text": "\tflags.StringVar(&opts.Account, \"account\", \"\", \"Account name\")",
+              "old": 44,
+              "new": 44
+            },
+            {
+              "type": " ",
+              "text": "\tflags.StringVar(&opts.Category, \"category\", \"\", \"Category name\")",
+              "old": 45,
+              "new": 45
+            },
+            {
+              "type": "-",
+              "text": "\tflags.IntVar(&opts.Limit, \"limit\", 20, \"Maximum number of entries\")",
+              "old": 46,
+              "new": null,
+              "stage": "full"
+            },
+            {
+              "type": "+",
+              "text": "\tflags.IntVar(&opts.Limit, \"limit\", 50, \"Maximum number of entries\")",
+              "old": null,
+              "new": 46,
+              "stage": "full",
+              "kind": "modified"
+            },
+            {
+              "type": " ",
+              "text": "\tif err := flags.Parse(args); err != nil {",
+              "old": 47,
+              "new": 47
+            },
+            {
+              "type": " ",
+              "text": "\t\treturn opts, err",
+              "old": 48,
+              "new": 48
+            },
+            {
+              "type": " ",
+              "text": "\t}",
+              "old": 49,
+              "new": 49
+            }
+          ],
+          "stage": "full"
+        },
+        {
+          "id": "cmd-ledger-main.go-h130",
+          "rows": [
+            {
+              "type": " ",
+              "text": "}",
+              "old": 131,
+              "new": 131
+            },
+            {
+              "type": " ",
+              "text": "",
+              "old": 132,
+              "new": 132
+            },
+            {
+              "type": " ",
+              "text": "func parseAmount(text string) (int64, error) {",
+              "old": 133,
+              "new": 133
+            },
+            {
+              "type": "+",
+              "text": "\ttext = strings.TrimSpace(text)",
+              "old": null,
+              "new": 134,
+              "stage": "none",
+              "kind": "added"
+            },
+            {
+              "type": " ",
+              "text": "\tnegative := strings.HasPrefix(text, \"-\")",
+              "old": 134,
+              "new": 135
+            },
+            {
+              "type": " ",
+              "text": "\tif negative {",
+              "old": 135,
+              "new": 136
+            },
+            {
+              "type": " ",
+              "text": "\t\ttext = strings.TrimPrefix(text, \"-\")",
+              "old": 136,
+              "new": 137
+            }
+          ],
+          "stage": "none"
+        },
+        {
+          "id": "cmd-ledger-main.go-h164",
+          "rows": [
+            {
+              "type": " ",
+              "text": "}",
+              "old": 165,
+              "new": 166
+            },
+            {
+              "type": " ",
+              "text": "",
+              "old": 166,
+              "new": 167
+            },
+            {
+              "type": " ",
+              "text": "func filterEntries(entries []entry, opts options) []entry {",
+              "old": 167,
+              "new": 168
+            },
+            {
+              "type": "-",
+              "text": "\tresult := make([]entry, 0, len(entries))",
+              "old": 168,
+              "new": null,
+              "stage": "none"
+            },
+            {
+              "type": "+",
+              "text": "\tresult := make([]entry, 0)",
+              "old": null,
+              "new": 169,
+              "stage": "none",
+              "kind": "modified"
+            },
+            {
+              "type": " ",
+              "text": "\tfor _, item := range entries {",
+              "old": 169,
+              "new": 170
+            },
+            {
+              "type": " ",
+              "text": "\t\tif opts.Month != \"\" && item.Date.Format(\"2006-01\") != opts.Month {",
+              "old": 170,
+              "new": 171
+            },
+            {
+              "type": " ",
+              "text": "\t\t\tcontinue",
+              "old": 171,
+              "new": 172
+            }
+          ],
+          "stage": "none"
+        }
+      ],
+      "stage": "partial",
+      "context": {
+        "43": 43,
+        "44": 44,
+        "45": 45,
+        "47": 47,
+        "48": 48,
+        "49": 49,
+        "50": 50,
+        "51": 51,
+        "52": 52,
+        "53": 53,
+        "54": 54,
+        "55": 55,
+        "56": 56,
+        "57": 57,
+        "58": 58,
+        "59": 59,
+        "60": 60,
+        "61": 61,
+        "62": 62,
+        "63": 63,
+        "64": 64,
+        "65": 65,
+        "66": 66,
+        "67": 67,
+        "68": 68,
+        "69": 69,
+        "70": 70,
+        "71": 71,
+        "72": 72,
+        "73": 73,
+        "74": 74,
+        "75": 75,
+        "76": 76,
+        "77": 77,
+        "78": 78,
+        "79": 79,
+        "80": 80,
+        "81": 81,
+        "82": 82,
+        "83": 83,
+        "84": 84,
+        "85": 85,
+        "86": 86,
+        "87": 87,
+        "88": 88,
+        "89": 89,
+        "90": 90,
+        "91": 91,
+        "92": 92,
+        "93": 93,
+        "94": 94,
+        "95": 95,
+        "96": 96,
+        "97": 97,
+        "98": 98,
+        "99": 99,
+        "100": 100,
+        "101": 101,
+        "102": 102,
+        "103": 103,
+        "104": 104,
+        "105": 105,
+        "106": 106,
+        "107": 107,
+        "108": 108,
+        "109": 109,
+        "110": 110,
+        "111": 111,
+        "112": 112,
+        "113": 113,
+        "114": 114,
+        "115": 115,
+        "116": 116,
+        "117": 117,
+        "118": 118,
+        "119": 119,
+        "120": 120,
+        "121": 121,
+        "122": 122,
+        "123": 123,
+        "124": 124,
+        "125": 125,
+        "126": 126,
+        "127": 127,
+        "128": 128,
+        "129": 129,
+        "130": 130,
+        "131": 131,
+        "132": 132,
+        "133": 133,
+        "135": 134,
+        "136": 135,
+        "137": 136,
+        "138": 137,
+        "139": 138,
+        "140": 139,
+        "141": 140,
+        "142": 141,
+        "143": 142,
+        "144": 143,
+        "145": 144,
+        "146": 145,
+        "147": 146,
+        "148": 147,
+        "149": 148,
+        "150": 149,
+        "151": 150,
+        "152": 151,
+        "153": 152,
+        "154": 153,
+        "155": 154,
+        "156": 155,
+        "157": 156,
+        "158": 157,
+        "159": 158,
+        "160": 159,
+        "161": 160,
+        "162": 161,
+        "163": 162,
+        "164": 163,
+        "165": 164,
+        "166": 165,
+        "167": 166,
+        "168": 167,
+        "170": 169,
+        "171": 170,
+        "172": 171
+      },
+      "plus": 3,
+      "minus": 2
+    },
+    {
+      "path": "docs/USAGE.md",
+      "status": "M",
+      "headExists": true,
+      "indexExists": true,
+      "workExists": true,
+      "head": "# ledger\n\nledger is a small command-line account book. It stores dates, accounts, categories, amounts, and notes in CSV files.\n\n## Record a payment\n\nAdd a row to ledger.csv. Use a negative amount for an expense and a positive amount for income.\n\n```csv\ndate,account,category,amount,note\n2026-04-03,cash,food,-12.50,Lunch\n2026-04-04,bank,income,2400.00,Salary\n```\n\nAmounts use two decimal places. All accounts in one file use the same currency.\n\n## Read entries\n\nRun the command from the directory that contains the account book.\n\n```sh\nledger -file ledger.csv -month 2026-04\n```\n\nThe command prints up to 20 entries in date order.\n\n## Account filter\n\nUse an account name to restrict the output.\n\n```sh\nledger -account cash\n```\n\nAccount names are case-sensitive. An empty account filter includes every account.\n\n## Monthly totals\n\nCategory totals include the number of payments and the amount in cents. An empty category keeps an empty label.\n\n| Field | Meaning |\n| --- | --- |\n| Date | Calendar date in YYYY-MM-DD form |\n| Amount | Signed amount with a decimal point |\n| Note | Optional description of the payment |\n\n## Keep a copy\n\nCopy ledger.csv before a large import. Keep the original bank statement until the totals agree.\n",
+      "index": "# ledger\n\nledger is a small command-line account book. It stores dates, accounts, categories, amounts, and notes in CSV files.\n\n## Record a payment\n\nAdd a row to ledger.csv. Use a negative amount for an expense and a positive amount for income.\n\n```csv\ndate,account,category,amount,note\n2026-04-03,cash,food,-12.50,Lunch\n2026-04-04,bank,income,2400.00,Salary\n```\n\nAmounts use two decimal places. All accounts in one file use the same currency.\n\n## Read entries\n\nRun the command from the directory that contains the account book.\n\n```sh\nledger -file ledger.csv -month 2026-04\n```\n\nThe command prints up to 50 entries in date order.\n\n## Account filter\n\nUse an account name to restrict the output.\n\n```sh\nledger -account cash\n```\n\nAccount names are case-sensitive. An empty account filter includes every account.\n\n## Monthly totals\n\nCategory totals include the number of payments and the amount in cents. An empty category keeps an empty label.\n\n| Field | Meaning |\n| --- | --- |\n| Date | Calendar date in YYYY-MM-DD form |\n| Amount | Signed amount with a decimal point |\n| Note | Optional description of the payment |\n\n## Keep a copy\n\nCopy ledger.csv before a large import. Keep the original bank statement until the totals agree.\n",
+      "full": "# ledger\n\nledger is a small command-line account book. It stores dates, accounts, categories, amounts, and notes in CSV files.\n\n## Record a payment\n\nAdd a row to ledger.csv. Use a negative amount for an expense and a positive amount for income.\n\n```csv\ndate,account,category,amount,note\n2026-04-03,cash,food,-12.50,Lunch\n2026-04-04,bank,income,2400.00,Salary\n```\n\nAmounts accept one or two decimal places. Spaces around an amount are ignored. All accounts in one file use the same currency.\n\n## Read entries\n\nRun the command from the directory that contains the account book.\n\n```sh\nledger -file ledger.csv -month 2026-04\n```\n\nThe command prints up to 50 entries in date order.\n\n## Account filter\n\nUse an account name to restrict the output.\n\n```sh\nledger -account cash\n```\n\nAccount names are case-sensitive. An empty account filter includes every account.\n\n## Monthly totals\n\nCategory totals include the number of payments and the amount in cents. An empty category uses the label `uncategorized`.\n\n| Field | Meaning |\n| --- | --- |\n| Date | Calendar date in YYYY-MM-DD form |\n| Amount | Signed amount with a decimal point |\n| Note | Optional description of the payment |\n\n## Keep a copy\n\nCopy ledger.csv before a large import. Keep the original bank statement until the totals agree.\n",
+      "hunks": [
+        {
+          "id": "docs-USAGE.md-h11",
+          "rows": [
+            {
+              "type": " ",
+              "text": "2026-04-04,bank,income,2400.00,Salary",
+              "old": 12,
+              "new": 12
+            },
+            {
+              "type": " ",
+              "text": "```",
+              "old": 13,
+              "new": 13
+            },
+            {
+              "type": " ",
+              "text": "",
+              "old": 14,
+              "new": 14
+            },
+            {
+              "type": "-",
+              "text": "Amounts use two decimal places. All accounts in one file use the same currency.",
+              "old": 15,
+              "new": null,
+              "stage": "none"
+            },
+            {
+              "type": "+",
+              "text": "Amounts accept one or two decimal places. Spaces around an amount are ignored. All accounts in one file use the same currency.",
+              "old": null,
+              "new": 15,
+              "stage": "none",
+              "kind": "modified"
+            },
+            {
+              "type": " ",
+              "text": "",
+              "old": 16,
+              "new": 16
+            },
+            {
+              "type": " ",
+              "text": "## Read entries",
+              "old": 17,
+              "new": 17
+            },
+            {
+              "type": " ",
+              "text": "",
+              "old": 18,
+              "new": 18
+            }
+          ],
+          "stage": "none"
+        },
+        {
+          "id": "docs-USAGE.md-h21",
+          "rows": [
+            {
+              "type": " ",
+              "text": "ledger -file ledger.csv -month 2026-04",
+              "old": 22,
+              "new": 22
+            },
+            {
+              "type": " ",
+              "text": "```",
+              "old": 23,
+              "new": 23
+            },
+            {
+              "type": " ",
+              "text": "",
+              "old": 24,
+              "new": 24
+            },
+            {
+              "type": "-",
+              "text": "The command prints up to 20 entries in date order.",
+              "old": 25,
+              "new": null,
+              "stage": "full"
+            },
+            {
+              "type": "+",
+              "text": "The command prints up to 50 entries in date order.",
+              "old": null,
+              "new": 25,
+              "stage": "full",
+              "kind": "modified"
+            },
+            {
+              "type": " ",
+              "text": "",
+              "old": 26,
+              "new": 26
+            },
+            {
+              "type": " ",
+              "text": "## Account filter",
+              "old": 27,
+              "new": 27
+            },
+            {
+              "type": " ",
+              "text": "",
+              "old": 28,
+              "new": 28
+            }
+          ],
+          "stage": "full"
+        },
+        {
+          "id": "docs-USAGE.md-h35",
+          "rows": [
+            {
+              "type": " ",
+              "text": "",
+              "old": 36,
+              "new": 36
+            },
+            {
+              "type": " ",
+              "text": "## Monthly totals",
+              "old": 37,
+              "new": 37
+            },
+            {
+              "type": " ",
+              "text": "",
+              "old": 38,
+              "new": 38
+            },
+            {
+              "type": "-",
+              "text": "Category totals include the number of payments and the amount in cents. An empty category keeps an empty label.",
+              "old": 39,
+              "new": null,
+              "stage": "none"
+            },
+            {
+              "type": "+",
+              "text": "Category totals include the number of payments and the amount in cents. An empty category uses the label `uncategorized`.",
+              "old": null,
+              "new": 39,
+              "stage": "none",
+              "kind": "modified"
+            },
+            {
+              "type": " ",
+              "text": "",
+              "old": 40,
+              "new": 40
+            },
+            {
+              "type": " ",
+              "text": "| Field | Meaning |",
+              "old": 41,
+              "new": 41
+            },
+            {
+              "type": " ",
+              "text": "| --- | --- |",
+              "old": 42,
+              "new": 42
+            }
+          ],
+          "stage": "none"
+        }
+      ],
+      "stage": "partial",
+      "context": {
+        "12": 12,
+        "13": 13,
+        "14": 14,
+        "16": 16,
+        "17": 17,
+        "18": 18,
+        "19": 19,
+        "20": 20,
+        "21": 21,
+        "22": 22,
+        "23": 23,
+        "24": 24,
+        "26": 26,
+        "27": 27,
+        "28": 28,
+        "29": 29,
+        "30": 30,
+        "31": 31,
+        "32": 32,
+        "33": 33,
+        "34": 34,
+        "35": 35,
+        "36": 36,
+        "37": 37,
+        "38": 38,
+        "40": 40,
+        "41": 41,
+        "42": 42
+      },
+      "plus": 3,
+      "minus": 3
+    },
+    {
+      "path": "internal/ledger/report.go",
+      "status": "M",
+      "headExists": true,
+      "indexExists": true,
+      "workExists": true,
+      "head": "package ledger\n\nimport (\n\t\"fmt\"\n\t\"sort\"\n\t\"time\"\n)\n\ntype Entry struct {\n\tDate     time.Time\n\tAccount  string\n\tCategory string\n\tCents    int64\n}\n\ntype Total struct {\n\tName  string\n\tCents int64\n\tCount int\n}\n\nfunc ByCategory(entries []Entry) []Total {\n\tgroups := make(map[string]Total)\n\tfor _, item := range entries {\n\t\tname := item.Category\n\t\ttotal := groups[name]\n\t\ttotal.Name = name\n\t\ttotal.Cents += item.Cents\n\t\ttotal.Count++\n\t\tgroups[name] = total\n\t}\n\tresult := make([]Total, 0, len(groups))\n\tfor _, total := range groups {\n\t\tresult = append(result, total)\n\t}\n\tsort.Slice(result, func(i, j int) bool {\n\t\treturn result[i].Name < result[j].Name\n\t})\n\treturn result\n}\n\nfunc MonthLabel(date time.Time) string {\n\treturn date.Format(\"January 2006\")\n}\n\nfunc TotalLabel(total Total) string {\n\treturn fmt.Sprintf(\"%s: %d entries\", total.Name, total.Count)\n}\n",
+      "index": "package ledger\n\nimport (\n\t\"fmt\"\n\t\"sort\"\n\t\"time\"\n)\n\ntype Entry struct {\n\tDate     time.Time\n\tAccount  string\n\tCategory string\n\tCents    int64\n}\n\ntype Total struct {\n\tName  string\n\tCents int64\n\tCount int\n}\n\nfunc ByCategory(entries []Entry) []Total {\n\tgroups := make(map[string]Total)\n\tfor _, item := range entries {\n\t\tname := item.Category\n\t\tif name == \"\" {\n\t\t\tname = \"uncategorized\"\n\t\t}\n\t\ttotal := groups[name]\n\t\ttotal.Name = name\n\t\ttotal.Cents += item.Cents\n\t\ttotal.Count++\n\t\tgroups[name] = total\n\t}\n\tresult := make([]Total, 0, len(groups))\n\tfor _, total := range groups {\n\t\tresult = append(result, total)\n\t}\n\tsort.Slice(result, func(i, j int) bool {\n\t\treturn result[i].Name < result[j].Name\n\t})\n\treturn result\n}\n\nfunc MonthLabel(date time.Time) string {\n\treturn date.Format(\"January 2006\")\n}\n\nfunc TotalLabel(total Total) string {\n\treturn fmt.Sprintf(\"%s: %d entries\", total.Name, total.Count)\n}\n",
+      "full": "package ledger\n\nimport (\n\t\"fmt\"\n\t\"sort\"\n\t\"time\"\n)\n\ntype Entry struct {\n\tDate     time.Time\n\tAccount  string\n\tCategory string\n\tCents    int64\n}\n\ntype Total struct {\n\tName  string\n\tCents int64\n\tCount int\n}\n\nfunc ByCategory(entries []Entry) []Total {\n\tgroups := make(map[string]Total)\n\tfor _, item := range entries {\n\t\tname := item.Category\n\t\tif name == \"\" {\n\t\t\tname = \"uncategorized\"\n\t\t}\n\t\ttotal := groups[name]\n\t\ttotal.Name = name\n\t\ttotal.Cents += item.Cents\n\t\ttotal.Count++\n\t\tgroups[name] = total\n\t}\n\tresult := make([]Total, 0, len(groups))\n\tfor _, total := range groups {\n\t\tresult = append(result, total)\n\t}\n\tsort.Slice(result, func(i, j int) bool {\n\t\treturn result[i].Name < result[j].Name\n\t})\n\treturn result\n}\n\nfunc MonthLabel(date time.Time) string {\n\treturn date.Format(\"2006-01\")\n}\n\nfunc TotalLabel(total Total) string {\n\treturn fmt.Sprintf(\"%s: %d entries\", total.Name, total.Count)\n}\n",
+      "hunks": [
+        {
+          "id": "internal-ledger-report.go-h22",
+          "rows": [
+            {
+              "type": " ",
+              "text": "\tgroups := make(map[string]Total)",
+              "old": 23,
+              "new": 23
+            },
+            {
+              "type": " ",
+              "text": "\tfor _, item := range entries {",
+              "old": 24,
+              "new": 24
+            },
+            {
+              "type": " ",
+              "text": "\t\tname := item.Category",
+              "old": 25,
+              "new": 25
+            },
+            {
+              "type": "+",
+              "text": "\t\tif name == \"\" {",
+              "old": null,
+              "new": 26,
+              "stage": "full",
+              "kind": "added"
+            },
+            {
+              "type": "+",
+              "text": "\t\t\tname = \"uncategorized\"",
+              "old": null,
+              "new": 27,
+              "stage": "full",
+              "kind": "added"
+            },
+            {
+              "type": "+",
+              "text": "\t\t}",
+              "old": null,
+              "new": 28,
+              "stage": "full",
+              "kind": "added"
+            },
+            {
+              "type": " ",
+              "text": "\t\ttotal := groups[name]",
+              "old": 26,
+              "new": 29
+            },
+            {
+              "type": " ",
+              "text": "\t\ttotal.Name = name",
+              "old": 27,
+              "new": 30
+            },
+            {
+              "type": " ",
+              "text": "\t\ttotal.Cents += item.Cents",
+              "old": 28,
+              "new": 31
+            }
+          ],
+          "stage": "full"
+        },
+        {
+          "id": "internal-ledger-report.go-h39",
+          "rows": [
+            {
+              "type": " ",
+              "text": "}",
+              "old": 40,
+              "new": 43
+            },
+            {
+              "type": " ",
+              "text": "",
+              "old": 41,
+              "new": 44
+            },
+            {
+              "type": " ",
+              "text": "func MonthLabel(date time.Time) string {",
+              "old": 42,
+              "new": 45
+            },
+            {
+              "type": "-",
+              "text": "\treturn date.Format(\"January 2006\")",
+              "old": 43,
+              "new": null,
+              "stage": "none"
+            },
+            {
+              "type": "+",
+              "text": "\treturn date.Format(\"2006-01\")",
+              "old": null,
+              "new": 46,
+              "stage": "none",
+              "kind": "modified"
+            },
+            {
+              "type": " ",
+              "text": "}",
+              "old": 44,
+              "new": 47
+            },
+            {
+              "type": " ",
+              "text": "",
+              "old": 45,
+              "new": 48
+            },
+            {
+              "type": " ",
+              "text": "func TotalLabel(total Total) string {",
+              "old": 46,
+              "new": 49
+            }
+          ],
+          "stage": "none"
+        }
+      ],
+      "stage": "partial",
+      "context": {
+        "23": 23,
+        "24": 24,
+        "25": 25,
+        "29": 26,
+        "30": 27,
+        "31": 28,
+        "32": 29,
+        "33": 30,
+        "34": 31,
+        "35": 32,
+        "36": 33,
+        "37": 34,
+        "38": 35,
+        "39": 36,
+        "40": 37,
+        "41": 38,
+        "42": 39,
+        "43": 40,
+        "44": 41,
+        "45": 42,
+        "47": 44,
+        "48": 45,
+        "49": 46
+      },
+      "plus": 4,
+      "minus": 1
+    },
+    {
+      "path": "internal/ledger/import.go",
+      "status": "M",
+      "headExists": true,
+      "indexExists": true,
+      "workExists": true,
+      "head": "package ledger\n\nimport (\n\t\"encoding/csv\"\n\t\"fmt\"\n\t\"io\"\n\t\"strings\"\n)\n\nfunc ReadAccounts(input io.Reader) (map[string]string, error) {\n\treader := csv.NewReader(input)\n\treader.FieldsPerRecord = 2\n\taccounts := make(map[string]string)\n\tfor row := 1; ; row++ {\n\t\trecord, err := reader.Read()\n\t\tif err == io.EOF {\n\t\t\treturn accounts, nil\n\t\t}\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"account row %d: %w\", row, err)\n\t\t}\n\t\tname := record[0]\n\t\tcurrency := record[1]\n\t\tif name == \"\" || currency == \"\" {\n\t\t\treturn nil, fmt.Errorf(\"account row %d is incomplete\", row)\n\t\t}\n\t\taccounts[name] = currency\n\t}\n}\n\nfunc AccountNames(accounts map[string]string) string {\n\tvar names []string\n\tfor name := range accounts {\n\t\tnames = append(names, name)\n\t}\n\treturn strings.Join(names, \", \")\n}\n",
+      "index": "package ledger\n\nimport (\n\t\"encoding/csv\"\n\t\"fmt\"\n\t\"io\"\n\t\"strings\"\n)\n\nfunc ReadAccounts(input io.Reader) (map[string]string, error) {\n\treader := csv.NewReader(input)\n\treader.FieldsPerRecord = 2\n\taccounts := make(map[string]string)\n\tfor row := 1; ; row++ {\n\t\trecord, err := reader.Read()\n\t\tif err == io.EOF {\n\t\t\treturn accounts, nil\n\t\t}\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"account row %d: %w\", row, err)\n\t\t}\n\t\tname := record[0]\n\t\tcurrency := record[1]\n\t\tif name == \"\" || currency == \"\" {\n\t\t\treturn nil, fmt.Errorf(\"account row %d is incomplete\", row)\n\t\t}\n\t\taccounts[name] = currency\n\t}\n}\n\nfunc AccountNames(accounts map[string]string) string {\n\tvar names []string\n\tfor name := range accounts {\n\t\tnames = append(names, name)\n\t}\n\treturn strings.Join(names, \", \")\n}\n",
+      "full": "package ledger\n\nimport (\n\t\"encoding/csv\"\n\t\"fmt\"\n\t\"io\"\n\t\"sort\"\n\t\"strings\"\n)\n\nfunc ReadAccounts(input io.Reader) (map[string]string, error) {\n\treader := csv.NewReader(input)\n\treader.FieldsPerRecord = 2\n\taccounts := make(map[string]string)\n\tfor row := 1; ; row++ {\n\t\trecord, err := reader.Read()\n\t\tif err == io.EOF {\n\t\t\treturn accounts, nil\n\t\t}\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"account row %d: %w\", row, err)\n\t\t}\n\t\tname := strings.TrimSpace(record[0])\n\t\tcurrency := record[1]\n\t\tif name == \"\" || currency == \"\" {\n\t\t\treturn nil, fmt.Errorf(\"account row %d is incomplete\", row)\n\t\t}\n\t\taccounts[name] = currency\n\t}\n}\n\nfunc AccountNames(accounts map[string]string) string {\n\tvar names []string\n\tfor name := range accounts {\n\t\tnames = append(names, name)\n\t}\n\tsort.Strings(names)\n\treturn strings.Join(names, \", \")\n}\n",
+      "hunks": [
+        {
+          "id": "internal-ledger-import.go-h3",
+          "rows": [
+            {
+              "type": " ",
+              "text": "\t\"encoding/csv\"",
+              "old": 4,
+              "new": 4
+            },
+            {
+              "type": " ",
+              "text": "\t\"fmt\"",
+              "old": 5,
+              "new": 5
+            },
+            {
+              "type": " ",
+              "text": "\t\"io\"",
+              "old": 6,
+              "new": 6
+            },
+            {
+              "type": "+",
+              "text": "\t\"sort\"",
+              "old": null,
+              "new": 7,
+              "stage": "none",
+              "kind": "added"
+            },
+            {
+              "type": " ",
+              "text": "\t\"strings\"",
+              "old": 7,
+              "new": 8
+            },
+            {
+              "type": " ",
+              "text": ")",
+              "old": 8,
+              "new": 9
+            },
+            {
+              "type": " ",
+              "text": "",
+              "old": 9,
+              "new": 10
+            }
+          ],
+          "stage": "none"
+        },
+        {
+          "id": "internal-ledger-import.go-h18",
+          "rows": [
+            {
+              "type": " ",
+              "text": "\t\tif err != nil {",
+              "old": 19,
+              "new": 20
+            },
+            {
+              "type": " ",
+              "text": "\t\t\treturn nil, fmt.Errorf(\"account row %d: %w\", row, err)",
+              "old": 20,
+              "new": 21
+            },
+            {
+              "type": " ",
+              "text": "\t\t}",
+              "old": 21,
+              "new": 22
+            },
+            {
+              "type": "-",
+              "text": "\t\tname := record[0]",
+              "old": 22,
+              "new": null,
+              "stage": "none"
+            },
+            {
+              "type": "+",
+              "text": "\t\tname := strings.TrimSpace(record[0])",
+              "old": null,
+              "new": 23,
+              "stage": "none",
+              "kind": "modified"
+            },
+            {
+              "type": " ",
+              "text": "\t\tcurrency := record[1]",
+              "old": 23,
+              "new": 24
+            },
+            {
+              "type": " ",
+              "text": "\t\tif name == \"\" || currency == \"\" {",
+              "old": 24,
+              "new": 25
+            },
+            {
+              "type": " ",
+              "text": "\t\t\treturn nil, fmt.Errorf(\"account row %d is incomplete\", row)",
+              "old": 25,
+              "new": 26
+            }
+          ],
+          "stage": "none"
+        },
+        {
+          "id": "internal-ledger-import.go-h32",
+          "rows": [
+            {
+              "type": " ",
+              "text": "\tfor name := range accounts {",
+              "old": 33,
+              "new": 34
+            },
+            {
+              "type": " ",
+              "text": "\t\tnames = append(names, name)",
+              "old": 34,
+              "new": 35
+            },
+            {
+              "type": " ",
+              "text": "\t}",
+              "old": 35,
+              "new": 36
+            },
+            {
+              "type": "+",
+              "text": "\tsort.Strings(names)",
+              "old": null,
+              "new": 37,
+              "stage": "none",
+              "kind": "added"
+            },
+            {
+              "type": " ",
+              "text": "\treturn strings.Join(names, \", \")",
+              "old": 36,
+              "new": 38
+            },
+            {
+              "type": " ",
+              "text": "}",
+              "old": 37,
+              "new": 39
+            }
+          ],
+          "stage": "none"
+        }
+      ],
+      "stage": "none",
+      "context": {
+        "4": 4,
+        "5": 5,
+        "6": 6,
+        "8": 7,
+        "9": 8,
+        "10": 9,
+        "11": 10,
+        "12": 11,
+        "13": 12,
+        "14": 13,
+        "15": 14,
+        "16": 15,
+        "17": 16,
+        "18": 17,
+        "19": 18,
+        "20": 19,
+        "21": 20,
+        "22": 21,
+        "24": 23,
+        "25": 24,
+        "26": 25,
+        "27": 26,
+        "28": 27,
+        "29": 28,
+        "30": 29,
+        "31": 30,
+        "32": 31,
+        "33": 32,
+        "34": 33,
+        "35": 34,
+        "36": 35,
+        "38": 36,
+        "39": 37
+      },
+      "plus": 3,
+      "minus": 1
+    },
+    {
+      "path": "CHANGELOG.md",
+      "status": "M",
+      "headExists": true,
+      "indexExists": true,
+      "workExists": true,
+      "head": "# Changelog\n\n## 0.2.0\n\n### Account books\n\n- Read five columns from CSV account books.\n- Filter payments by account and month.\n- Print a maximum of 20 entries.\n\n### Totals\n\nCategory totals report amounts in cents. Month labels use the full month name.\n\n## 0.1.0\n\nThe first version reads dates and signed amounts from a local CSV file.\n",
+      "index": "# Changelog\n\n## 0.2.0\n\n### Account books\n\n- Read five columns from CSV account books.\n- Filter payments by account and month.\n- Print a maximum of 50 entries.\n\n### Totals\n\nCategory totals report amounts in cents. Month labels use the full month name.\n\n## 0.1.0\n\nThe first version reads dates and signed amounts from a local CSV file.\n",
+      "full": "# Changelog\n\n## 0.2.0\n\n### Account books\n\n- Read five columns from CSV account books.\n- Filter payments by account and month.\n- Accept spaces around amounts.\n- Print a maximum of 50 entries.\n\n### Totals\n\nCategory totals report amounts in cents. Month labels use YYYY-MM. Empty categories use `uncategorized`.\n\n## 0.1.0\n\nThe first version reads dates and signed amounts from a local CSV file.\n",
+      "hunks": [
+        {
+          "id": "CHANGELOG.md-h5",
+          "rows": [
+            {
+              "type": " ",
+              "text": "",
+              "old": 6,
+              "new": 6
+            },
+            {
+              "type": " ",
+              "text": "- Read five columns from CSV account books.",
+              "old": 7,
+              "new": 7
+            },
+            {
+              "type": " ",
+              "text": "- Filter payments by account and month.",
+              "old": 8,
+              "new": 8
+            },
+            {
+              "type": "-",
+              "text": "- Print a maximum of 20 entries.",
+              "old": 9,
+              "new": null,
+              "stage": "full"
+            },
+            {
+              "type": "+",
+              "text": "- Accept spaces around amounts.",
+              "old": null,
+              "new": 9,
+              "stage": "partial",
+              "kind": "modified"
+            },
+            {
+              "type": "+",
+              "text": "- Print a maximum of 50 entries.",
+              "old": null,
+              "new": 10,
+              "stage": "partial",
+              "kind": "modified"
+            },
+            {
+              "type": " ",
+              "text": "",
+              "old": 10,
+              "new": 11
+            },
+            {
+              "type": " ",
+              "text": "### Totals",
+              "old": 11,
+              "new": 12
+            },
+            {
+              "type": " ",
+              "text": "",
+              "old": 12,
+              "new": 13
+            },
+            {
+              "type": "-",
+              "text": "Category totals report amounts in cents. Month labels use the full month name.",
+              "old": 13,
+              "new": null,
+              "stage": "none"
+            },
+            {
+              "type": "+",
+              "text": "Category totals report amounts in cents. Month labels use YYYY-MM. Empty categories use `uncategorized`.",
+              "old": null,
+              "new": 14,
+              "stage": "none",
+              "kind": "modified"
+            },
+            {
+              "type": " ",
+              "text": "",
+              "old": 14,
+              "new": 15
+            },
+            {
+              "type": " ",
+              "text": "## 0.1.0",
+              "old": 15,
+              "new": 16
+            },
+            {
+              "type": " ",
+              "text": "",
+              "old": 16,
+              "new": 17
+            }
+          ],
+          "stage": "partial"
+        }
+      ],
+      "stage": "partial",
+      "context": {
+        "6": 6,
+        "7": 7,
+        "8": 8,
+        "11": 10,
+        "12": 11,
+        "13": 12,
+        "15": 14,
+        "16": 15,
+        "17": 16
+      },
+      "plus": 3,
+      "minus": 2
+    },
+    {
+      "path": "internal/ledger/totals.go",
+      "status": "R",
+      "headExists": true,
+      "indexExists": true,
+      "workExists": true,
+      "head": "package ledger\n\nfunc NetAmount(entries []Entry) int64 {\n\tvar cents int64\n\tfor _, item := range entries {\n\t\tcents += item.Cents\n\t}\n\treturn cents\n}\n",
+      "index": "package ledger\n\nfunc NetAmount(entries []Entry) int64 {\n\tvar cents int64\n\tfor _, item := range entries {\n\t\tcents += item.Cents\n\t}\n\treturn cents\n}\n",
+      "full": "package ledger\n\nfunc NetAmount(entries []Entry) int64 {\n\tvar cents int64\n\tfor _, item := range entries {\n\t\tcents += item.Cents\n\t}\n\treturn cents\n}\n",
+      "hunks": [],
+      "stage": "full",
+      "context": {
+        "7": 7,
+        "8": 8,
+        "9": 9
+      },
+      "plus": 0,
+      "minus": 0,
+      "oldPath": "internal/ledger/summary.go"
+    },
+    {
+      "path": "notes/inbox.txt",
+      "status": "U",
+      "headExists": false,
+      "indexExists": false,
+      "workExists": true,
+      "head": "",
+      "index": "",
+      "full": "Add the train fare from the paper receipt.\n",
+      "hunks": [
+        {
+          "id": "notes-inbox.txt-h0",
+          "rows": [
+            {
+              "type": "+",
+              "text": "Add the train fare from the paper receipt.",
+              "old": null,
+              "new": 1,
+              "stage": "none",
+              "kind": "added"
+            }
+          ],
+          "stage": "none"
+        }
+      ],
+      "stage": "none",
+      "context": {},
+      "plus": 1,
+      "minus": 0,
+      "untracked": true
+    },
+    {
+      "path": "notes/opening.txt",
+      "status": "A",
+      "headExists": false,
+      "indexExists": true,
+      "workExists": true,
+      "head": "",
+      "index": "Opening cash balance: 85.00\n",
+      "full": "Opening cash balance: 85.00\n",
+      "hunks": [
+        {
+          "id": "notes-opening.txt-h0",
+          "rows": [
+            {
+              "type": "+",
+              "text": "Opening cash balance: 85.00",
+              "old": null,
+              "new": 1,
+              "stage": "full",
+              "kind": "added"
+            }
+          ],
+          "stage": "full"
+        }
+      ],
+      "stage": "full",
+      "context": {},
+      "plus": 1,
+      "minus": 0
+    },
+    {
+      "path": "examples/legacy.csv",
+      "status": "D",
+      "headExists": true,
+      "indexExists": true,
+      "workExists": false,
+      "head": "date,account,category,amount,note\n2025-01-01,cash,opening,10.00,Old balance\n",
+      "index": "date,account,category,amount,note\n2025-01-01,cash,opening,10.00,Old balance\n",
+      "full": "",
+      "hunks": [
+        {
+          "id": "examples-legacy.csv-h0",
+          "rows": [
+            {
+              "type": "-",
+              "text": "date,account,category,amount,note",
+              "old": 1,
+              "new": null,
+              "stage": "none"
+            },
+            {
+              "type": "-",
+              "text": "2025-01-01,cash,opening,10.00,Old balance",
+              "old": 2,
+              "new": null,
+              "stage": "none"
+            }
+          ],
+          "stage": "none"
+        }
+      ],
+      "stage": "none",
+      "context": {},
+      "plus": 0,
+      "minus": 2
+    }
+  ],
+  "updated": {
+    "path": "cmd/ledger/main.go",
+    "status": "M",
+    "headExists": true,
+    "indexExists": true,
+    "workExists": true,
+    "head": "package main\n\nimport (\n\t\"encoding/csv\"\n\t\"errors\"\n\t\"flag\"\n\t\"fmt\"\n\t\"io\"\n\t\"os\"\n\t\"sort\"\n\t\"strconv\"\n\t\"strings\"\n\t\"time\"\n)\n\ntype entry struct {\n\tDate     time.Time\n\tAccount  string\n\tCategory string\n\tCents    int64\n\tNote     string\n}\n\ntype options struct {\n\tFile     string\n\tMonth    string\n\tAccount  string\n\tCategory string\n\tLimit    int\n}\n\nfunc main() {\n\tif err := run(os.Args[1:], os.Stdout); err != nil {\n\t\tfmt.Fprintln(os.Stderr, err)\n\t\tos.Exit(1)\n\t}\n}\n\nfunc parseOptions(args []string) (options, error) {\n\tvar opts options\n\tflags := flag.NewFlagSet(\"ledger\", flag.ContinueOnError)\n\tflags.StringVar(&opts.File, \"file\", \"ledger.csv\", \"Path to the account book\")\n\tflags.StringVar(&opts.Month, \"month\", \"\", \"Month in YYYY-MM form\")\n\tflags.StringVar(&opts.Account, \"account\", \"\", \"Account name\")\n\tflags.StringVar(&opts.Category, \"category\", \"\", \"Category name\")\n\tflags.IntVar(&opts.Limit, \"limit\", 20, \"Maximum number of entries\")\n\tif err := flags.Parse(args); err != nil {\n\t\treturn opts, err\n\t}\n\tif opts.Limit < 1 {\n\t\treturn opts, errors.New(\"limit must be positive\")\n\t}\n\tif opts.Month != \"\" {\n\t\tif _, err := time.Parse(\"2006-01\", opts.Month); err != nil {\n\t\t\treturn opts, errors.New(\"month must use YYYY-MM\")\n\t\t}\n\t}\n\treturn opts, nil\n}\n\nfunc run(args []string, output io.Writer) error {\n\topts, err := parseOptions(args)\n\tif err != nil {\n\t\treturn err\n\t}\n\tfile, err := os.Open(opts.File)\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer file.Close()\n\tentries, err := readEntries(file)\n\tif err != nil {\n\t\treturn err\n\t}\n\tentries = filterEntries(entries, opts)\n\tsort.SliceStable(entries, func(i, j int) bool {\n\t\treturn entries[i].Date.Before(entries[j].Date)\n\t})\n\tif len(entries) > opts.Limit {\n\t\tentries = entries[:opts.Limit]\n\t}\n\treturn writeEntries(output, entries)\n}\n\nfunc readEntries(input io.Reader) ([]entry, error) {\n\treader := csv.NewReader(input)\n\treader.FieldsPerRecord = 5\n\theader, err := reader.Read()\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tif strings.Join(header, \",\") != \"date,account,category,amount,note\" {\n\t\treturn nil, errors.New(\"unexpected account book columns\")\n\t}\n\tvar entries []entry\n\tfor row := 2; ; row++ {\n\t\trecord, err := reader.Read()\n\t\tif err == io.EOF {\n\t\t\treturn entries, nil\n\t\t}\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"row %d: %w\", row, err)\n\t\t}\n\t\titem, err := parseEntry(record)\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"row %d: %w\", row, err)\n\t\t}\n\t\tentries = append(entries, item)\n\t}\n}\n\nfunc parseEntry(record []string) (entry, error) {\n\tvar item entry\n\tdate, err := time.Parse(\"2006-01-02\", record[0])\n\tif err != nil {\n\t\treturn item, errors.New(\"date must use YYYY-MM-DD\")\n\t}\n\tcents, err := parseAmount(record[3])\n\tif err != nil {\n\t\treturn item, err\n\t}\n\titem.Date = date\n\titem.Account = record[1]\n\titem.Category = record[2]\n\titem.Cents = cents\n\titem.Note = record[4]\n\tif item.Account == \"\" {\n\t\treturn item, errors.New(\"account is required\")\n\t}\n\treturn item, nil\n}\n\nfunc parseAmount(text string) (int64, error) {\n\tnegative := strings.HasPrefix(text, \"-\")\n\tif negative {\n\t\ttext = strings.TrimPrefix(text, \"-\")\n\t}\n\tparts := strings.Split(text, \".\")\n\tif len(parts) > 2 || parts[0] == \"\" {\n\t\treturn 0, errors.New(\"invalid amount\")\n\t}\n\twhole, err := strconv.ParseInt(parts[0], 10, 64)\n\tif err != nil || whole < 0 || whole > 9000000000 {\n\t\treturn 0, errors.New(\"amount is outside the supported range\")\n\t}\n\tfraction := \"00\"\n\tif len(parts) == 2 {\n\t\tfraction = parts[1]\n\t\tif len(fraction) == 1 {\n\t\t\tfraction += \"0\"\n\t\t}\n\t\tif len(fraction) != 2 {\n\t\t\treturn 0, errors.New(\"amount needs at most two decimal places\")\n\t\t}\n\t}\n\tcents, err := strconv.ParseInt(fraction, 10, 64)\n\tif err != nil || cents < 0 || cents > 99 {\n\t\treturn 0, errors.New(\"invalid decimal amount\")\n\t}\n\tcents += whole * 100\n\tif negative {\n\t\tcents = -cents\n\t}\n\treturn cents, nil\n}\n\nfunc filterEntries(entries []entry, opts options) []entry {\n\tresult := make([]entry, 0, len(entries))\n\tfor _, item := range entries {\n\t\tif opts.Month != \"\" && item.Date.Format(\"2006-01\") != opts.Month {\n\t\t\tcontinue\n\t\t}\n\t\tif opts.Account != \"\" && item.Account != opts.Account {\n\t\t\tcontinue\n\t\t}\n\t\tif opts.Category != \"\" && item.Category != opts.Category {\n\t\t\tcontinue\n\t\t}\n\t\tresult = append(result, item)\n\t}\n\treturn result\n}\n\nfunc writeEntries(output io.Writer, entries []entry) error {\n\twriter := csv.NewWriter(output)\n\tif err := writer.Write([]string{\"date\", \"account\", \"category\", \"amount\", \"note\"}); err != nil {\n\t\treturn err\n\t}\n\tfor _, item := range entries {\n\t\trecord := []string{\n\t\t\titem.Date.Format(\"2006-01-02\"),\n\t\t\titem.Account,\n\t\t\titem.Category,\n\t\t\tformatAmount(item.Cents),\n\t\t\titem.Note,\n\t\t}\n\t\tif err := writer.Write(record); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n\twriter.Flush()\n\treturn writer.Error()\n}\n\nfunc formatAmount(cents int64) string {\n\tsign := \"\"\n\tif cents < 0 {\n\t\tsign = \"-\"\n\t\tcents = -cents\n\t}\n\treturn fmt.Sprintf(\"%s%d.%02d\", sign, cents/100, cents%100)\n}\n",
+    "index": "package main\n\nimport (\n\t\"encoding/csv\"\n\t\"errors\"\n\t\"flag\"\n\t\"fmt\"\n\t\"io\"\n\t\"os\"\n\t\"sort\"\n\t\"strconv\"\n\t\"strings\"\n\t\"time\"\n)\n\ntype entry struct {\n\tDate     time.Time\n\tAccount  string\n\tCategory string\n\tCents    int64\n\tNote     string\n}\n\ntype options struct {\n\tFile     string\n\tMonth    string\n\tAccount  string\n\tCategory string\n\tLimit    int\n}\n\nfunc main() {\n\tif err := run(os.Args[1:], os.Stdout); err != nil {\n\t\tfmt.Fprintln(os.Stderr, err)\n\t\tos.Exit(1)\n\t}\n}\n\nfunc parseOptions(args []string) (options, error) {\n\tvar opts options\n\tflags := flag.NewFlagSet(\"ledger\", flag.ContinueOnError)\n\tflags.StringVar(&opts.File, \"file\", \"ledger.csv\", \"Path to the account book\")\n\tflags.StringVar(&opts.Month, \"month\", \"\", \"Month in YYYY-MM form\")\n\tflags.StringVar(&opts.Account, \"account\", \"\", \"Account name\")\n\tflags.StringVar(&opts.Category, \"category\", \"\", \"Category name\")\n\tflags.IntVar(&opts.Limit, \"limit\", 50, \"Maximum number of entries\")\n\tif err := flags.Parse(args); err != nil {\n\t\treturn opts, err\n\t}\n\tif opts.Limit < 1 {\n\t\treturn opts, errors.New(\"limit must be positive\")\n\t}\n\tif opts.Month != \"\" {\n\t\tif _, err := time.Parse(\"2006-01\", opts.Month); err != nil {\n\t\t\treturn opts, errors.New(\"month must use YYYY-MM\")\n\t\t}\n\t}\n\treturn opts, nil\n}\n\nfunc run(args []string, output io.Writer) error {\n\topts, err := parseOptions(args)\n\tif err != nil {\n\t\treturn err\n\t}\n\tfile, err := os.Open(opts.File)\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer file.Close()\n\tentries, err := readEntries(file)\n\tif err != nil {\n\t\treturn err\n\t}\n\tentries = filterEntries(entries, opts)\n\tsort.SliceStable(entries, func(i, j int) bool {\n\t\treturn entries[i].Date.Before(entries[j].Date)\n\t})\n\tif len(entries) > opts.Limit {\n\t\tentries = entries[:opts.Limit]\n\t}\n\treturn writeEntries(output, entries)\n}\n\nfunc readEntries(input io.Reader) ([]entry, error) {\n\treader := csv.NewReader(input)\n\treader.FieldsPerRecord = 5\n\theader, err := reader.Read()\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tif strings.Join(header, \",\") != \"date,account,category,amount,note\" {\n\t\treturn nil, errors.New(\"unexpected account book columns\")\n\t}\n\tvar entries []entry\n\tfor row := 2; ; row++ {\n\t\trecord, err := reader.Read()\n\t\tif err == io.EOF {\n\t\t\treturn entries, nil\n\t\t}\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"row %d: %w\", row, err)\n\t\t}\n\t\titem, err := parseEntry(record)\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"row %d: %w\", row, err)\n\t\t}\n\t\tentries = append(entries, item)\n\t}\n}\n\nfunc parseEntry(record []string) (entry, error) {\n\tvar item entry\n\tdate, err := time.Parse(\"2006-01-02\", record[0])\n\tif err != nil {\n\t\treturn item, errors.New(\"date must use YYYY-MM-DD\")\n\t}\n\tcents, err := parseAmount(record[3])\n\tif err != nil {\n\t\treturn item, err\n\t}\n\titem.Date = date\n\titem.Account = record[1]\n\titem.Category = record[2]\n\titem.Cents = cents\n\titem.Note = record[4]\n\tif item.Account == \"\" {\n\t\treturn item, errors.New(\"account is required\")\n\t}\n\treturn item, nil\n}\n\nfunc parseAmount(text string) (int64, error) {\n\tnegative := strings.HasPrefix(text, \"-\")\n\tif negative {\n\t\ttext = strings.TrimPrefix(text, \"-\")\n\t}\n\tparts := strings.Split(text, \".\")\n\tif len(parts) > 2 || parts[0] == \"\" {\n\t\treturn 0, errors.New(\"invalid amount\")\n\t}\n\twhole, err := strconv.ParseInt(parts[0], 10, 64)\n\tif err != nil || whole < 0 || whole > 9000000000 {\n\t\treturn 0, errors.New(\"amount is outside the supported range\")\n\t}\n\tfraction := \"00\"\n\tif len(parts) == 2 {\n\t\tfraction = parts[1]\n\t\tif len(fraction) == 1 {\n\t\t\tfraction += \"0\"\n\t\t}\n\t\tif len(fraction) != 2 {\n\t\t\treturn 0, errors.New(\"amount needs at most two decimal places\")\n\t\t}\n\t}\n\tcents, err := strconv.ParseInt(fraction, 10, 64)\n\tif err != nil || cents < 0 || cents > 99 {\n\t\treturn 0, errors.New(\"invalid decimal amount\")\n\t}\n\tcents += whole * 100\n\tif negative {\n\t\tcents = -cents\n\t}\n\treturn cents, nil\n}\n\nfunc filterEntries(entries []entry, opts options) []entry {\n\tresult := make([]entry, 0, len(entries))\n\tfor _, item := range entries {\n\t\tif opts.Month != \"\" && item.Date.Format(\"2006-01\") != opts.Month {\n\t\t\tcontinue\n\t\t}\n\t\tif opts.Account != \"\" && item.Account != opts.Account {\n\t\t\tcontinue\n\t\t}\n\t\tif opts.Category != \"\" && item.Category != opts.Category {\n\t\t\tcontinue\n\t\t}\n\t\tresult = append(result, item)\n\t}\n\treturn result\n}\n\nfunc writeEntries(output io.Writer, entries []entry) error {\n\twriter := csv.NewWriter(output)\n\tif err := writer.Write([]string{\"date\", \"account\", \"category\", \"amount\", \"note\"}); err != nil {\n\t\treturn err\n\t}\n\tfor _, item := range entries {\n\t\trecord := []string{\n\t\t\titem.Date.Format(\"2006-01-02\"),\n\t\t\titem.Account,\n\t\t\titem.Category,\n\t\t\tformatAmount(item.Cents),\n\t\t\titem.Note,\n\t\t}\n\t\tif err := writer.Write(record); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n\twriter.Flush()\n\treturn writer.Error()\n}\n\nfunc formatAmount(cents int64) string {\n\tsign := \"\"\n\tif cents < 0 {\n\t\tsign = \"-\"\n\t\tcents = -cents\n\t}\n\treturn fmt.Sprintf(\"%s%d.%02d\", sign, cents/100, cents%100)\n}\n",
+    "full": "package main\n\nimport (\n\t\"encoding/csv\"\n\t\"errors\"\n\t\"flag\"\n\t\"fmt\"\n\t\"io\"\n\t\"os\"\n\t\"sort\"\n\t\"strconv\"\n\t\"strings\"\n\t\"time\"\n)\n\ntype entry struct {\n\tDate     time.Time\n\tAccount  string\n\tCategory string\n\tCents    int64\n\tNote     string\n}\n\ntype options struct {\n\tFile     string\n\tMonth    string\n\tAccount  string\n\tCategory string\n\tLimit    int\n}\n\nfunc main() {\n\tif err := run(os.Args[1:], os.Stdout); err != nil {\n\t\tfmt.Fprintln(os.Stderr, err)\n\t\tos.Exit(1)\n\t}\n}\n\nfunc parseOptions(args []string) (options, error) {\n\tvar opts options\n\tflags := flag.NewFlagSet(\"ledger\", flag.ContinueOnError)\n\tflags.StringVar(&opts.File, \"file\", \"ledger.csv\", \"Path to the account book\")\n\tflags.StringVar(&opts.Month, \"month\", \"\", \"Month in YYYY-MM form\")\n\tflags.StringVar(&opts.Account, \"account\", \"\", \"Account name\")\n\tflags.StringVar(&opts.Category, \"category\", \"\", \"Category name\")\n\tflags.IntVar(&opts.Limit, \"limit\", 100, \"Maximum number of entries\")\n\tif err := flags.Parse(args); err != nil {\n\t\treturn opts, err\n\t}\n\tif opts.Limit < 1 {\n\t\treturn opts, errors.New(\"limit must be positive\")\n\t}\n\tif opts.Month != \"\" {\n\t\tif _, err := time.Parse(\"2006-01\", opts.Month); err != nil {\n\t\t\treturn opts, errors.New(\"month must use YYYY-MM\")\n\t\t}\n\t}\n\treturn opts, nil\n}\n\nfunc run(args []string, output io.Writer) error {\n\topts, err := parseOptions(args)\n\tif err != nil {\n\t\treturn err\n\t}\n\tfile, err := os.Open(opts.File)\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer file.Close()\n\tentries, err := readEntries(file)\n\tif err != nil {\n\t\treturn err\n\t}\n\tentries = filterEntries(entries, opts)\n\tsort.SliceStable(entries, func(i, j int) bool {\n\t\treturn entries[i].Date.Before(entries[j].Date)\n\t})\n\tif len(entries) > opts.Limit {\n\t\tentries = entries[:opts.Limit]\n\t}\n\treturn writeEntries(output, entries)\n}\n\nfunc readEntries(input io.Reader) ([]entry, error) {\n\treader := csv.NewReader(input)\n\treader.FieldsPerRecord = 5\n\theader, err := reader.Read()\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tif strings.Join(header, \",\") != \"date,account,category,amount,note\" {\n\t\treturn nil, errors.New(\"unexpected account book columns\")\n\t}\n\tvar entries []entry\n\tfor row := 2; ; row++ {\n\t\trecord, err := reader.Read()\n\t\tif err == io.EOF {\n\t\t\treturn entries, nil\n\t\t}\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"row %d: %w\", row, err)\n\t\t}\n\t\titem, err := parseEntry(record)\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"row %d: %w\", row, err)\n\t\t}\n\t\tentries = append(entries, item)\n\t}\n}\n\nfunc parseEntry(record []string) (entry, error) {\n\tvar item entry\n\tdate, err := time.Parse(\"2006-01-02\", record[0])\n\tif err != nil {\n\t\treturn item, errors.New(\"date must use YYYY-MM-DD\")\n\t}\n\tcents, err := parseAmount(record[3])\n\tif err != nil {\n\t\treturn item, err\n\t}\n\titem.Date = date\n\titem.Account = record[1]\n\titem.Category = record[2]\n\titem.Cents = cents\n\titem.Note = strings.TrimSpace(record[4])\n\tif item.Account == \"\" {\n\t\treturn item, errors.New(\"account is required\")\n\t}\n\treturn item, nil\n}\n\nfunc parseAmount(text string) (int64, error) {\n\ttext = strings.TrimSpace(text)\n\tnegative := strings.HasPrefix(text, \"-\")\n\tif negative {\n\t\ttext = strings.TrimPrefix(text, \"-\")\n\t}\n\tparts := strings.Split(text, \".\")\n\tif len(parts) > 2 || parts[0] == \"\" {\n\t\treturn 0, errors.New(\"invalid amount\")\n\t}\n\twhole, err := strconv.ParseInt(parts[0], 10, 64)\n\tif err != nil || whole < 0 || whole > 9000000000 {\n\t\treturn 0, errors.New(\"amount is outside the supported range\")\n\t}\n\tfraction := \"00\"\n\tif len(parts) == 2 {\n\t\tfraction = parts[1]\n\t\tif len(fraction) == 1 {\n\t\t\tfraction += \"0\"\n\t\t}\n\t\tif len(fraction) != 2 {\n\t\t\treturn 0, errors.New(\"amount needs at most two decimal places\")\n\t\t}\n\t}\n\tcents, err := strconv.ParseInt(fraction, 10, 64)\n\tif err != nil || cents < 0 || cents > 99 {\n\t\treturn 0, errors.New(\"invalid decimal amount\")\n\t}\n\tcents += whole * 100\n\tif negative {\n\t\tcents = -cents\n\t}\n\treturn cents, nil\n}\n\nfunc filterEntries(entries []entry, opts options) []entry {\n\tresult := make([]entry, 0)\n\tfor _, item := range entries {\n\t\tif opts.Month != \"\" && item.Date.Format(\"2006-01\") != opts.Month {\n\t\t\tcontinue\n\t\t}\n\t\tif opts.Account != \"\" && item.Account != opts.Account {\n\t\t\tcontinue\n\t\t}\n\t\tif opts.Category != \"\" && item.Category != opts.Category {\n\t\t\tcontinue\n\t\t}\n\t\tresult = append(result, item)\n\t}\n\treturn result\n}\n\nfunc writeEntries(output io.Writer, entries []entry) error {\n\twriter := csv.NewWriter(output)\n\tif err := writer.Write([]string{\"date\", \"account\", \"category\", \"amount\", \"note\"}); err != nil {\n\t\treturn err\n\t}\n\tfor _, item := range entries {\n\t\trecord := []string{\n\t\t\titem.Date.Format(\"2006-01-02\"),\n\t\t\titem.Account,\n\t\t\titem.Category,\n\t\t\tformatAmount(item.Cents),\n\t\t\titem.Note,\n\t\t}\n\t\tif err := writer.Write(record); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n\twriter.Flush()\n\treturn writer.Error()\n}\n\nfunc formatAmount(cents int64) string {\n\tsign := \"\"\n\tif cents < 0 {\n\t\tsign = \"-\"\n\t\tcents = -cents\n\t}\n\treturn fmt.Sprintf(\"%s%d.%02d\", sign, cents/100, cents%100)\n}\n",
+    "hunks": [
+      {
+        "id": "cmd-ledger-main.go-h42",
+        "rows": [
+          {
+            "type": " ",
+            "text": "\tflags.StringVar(&opts.Month, \"month\", \"\", \"Month in YYYY-MM form\")",
+            "old": 43,
+            "new": 43
+          },
+          {
+            "type": " ",
+            "text": "\tflags.StringVar(&opts.Account, \"account\", \"\", \"Account name\")",
+            "old": 44,
+            "new": 44
+          },
+          {
+            "type": " ",
+            "text": "\tflags.StringVar(&opts.Category, \"category\", \"\", \"Category name\")",
+            "old": 45,
+            "new": 45
+          },
+          {
+            "type": "-",
+            "text": "\tflags.IntVar(&opts.Limit, \"limit\", 20, \"Maximum number of entries\")",
+            "old": 46,
+            "new": null,
+            "stage": "full"
+          },
+          {
+            "type": "+",
+            "text": "\tflags.IntVar(&opts.Limit, \"limit\", 100, \"Maximum number of entries\")",
+            "old": null,
+            "new": 46,
+            "stage": "partial",
+            "kind": "modified"
+          },
+          {
+            "type": " ",
+            "text": "\tif err := flags.Parse(args); err != nil {",
+            "old": 47,
+            "new": 47
+          },
+          {
+            "type": " ",
+            "text": "\t\treturn opts, err",
+            "old": 48,
+            "new": 48
+          },
+          {
+            "type": " ",
+            "text": "\t}",
+            "old": 49,
+            "new": 49
+          }
+        ],
+        "stage": "partial"
+      },
+      {
+        "id": "cmd-ledger-main.go-h122",
+        "rows": [
+          {
+            "type": " ",
+            "text": "\titem.Account = record[1]",
+            "old": 123,
+            "new": 123
+          },
+          {
+            "type": " ",
+            "text": "\titem.Category = record[2]",
+            "old": 124,
+            "new": 124
+          },
+          {
+            "type": " ",
+            "text": "\titem.Cents = cents",
+            "old": 125,
+            "new": 125
+          },
+          {
+            "type": "-",
+            "text": "\titem.Note = record[4]",
+            "old": 126,
+            "new": null,
+            "stage": "none"
+          },
+          {
+            "type": "+",
+            "text": "\titem.Note = strings.TrimSpace(record[4])",
+            "old": null,
+            "new": 126,
+            "stage": "none",
+            "kind": "modified"
+          },
+          {
+            "type": " ",
+            "text": "\tif item.Account == \"\" {",
+            "old": 127,
+            "new": 127
+          },
+          {
+            "type": " ",
+            "text": "\t\treturn item, errors.New(\"account is required\")",
+            "old": 128,
+            "new": 128
+          },
+          {
+            "type": " ",
+            "text": "\t}",
+            "old": 129,
+            "new": 129
+          }
+        ],
+        "stage": "none"
+      },
+      {
+        "id": "cmd-ledger-main.go-h130",
+        "rows": [
+          {
+            "type": " ",
+            "text": "}",
+            "old": 131,
+            "new": 131
+          },
+          {
+            "type": " ",
+            "text": "",
+            "old": 132,
+            "new": 132
+          },
+          {
+            "type": " ",
+            "text": "func parseAmount(text string) (int64, error) {",
+            "old": 133,
+            "new": 133
+          },
+          {
+            "type": "+",
+            "text": "\ttext = strings.TrimSpace(text)",
+            "old": null,
+            "new": 134,
+            "stage": "none",
+            "kind": "added"
+          },
+          {
+            "type": " ",
+            "text": "\tnegative := strings.HasPrefix(text, \"-\")",
+            "old": 134,
+            "new": 135
+          },
+          {
+            "type": " ",
+            "text": "\tif negative {",
+            "old": 135,
+            "new": 136
+          },
+          {
+            "type": " ",
+            "text": "\t\ttext = strings.TrimPrefix(text, \"-\")",
+            "old": 136,
+            "new": 137
+          }
+        ],
+        "stage": "none"
+      },
+      {
+        "id": "cmd-ledger-main.go-h164",
+        "rows": [
+          {
+            "type": " ",
+            "text": "}",
+            "old": 165,
+            "new": 166
+          },
+          {
+            "type": " ",
+            "text": "",
+            "old": 166,
+            "new": 167
+          },
+          {
+            "type": " ",
+            "text": "func filterEntries(entries []entry, opts options) []entry {",
+            "old": 167,
+            "new": 168
+          },
+          {
+            "type": "-",
+            "text": "\tresult := make([]entry, 0, len(entries))",
+            "old": 168,
+            "new": null,
+            "stage": "none"
+          },
+          {
+            "type": "+",
+            "text": "\tresult := make([]entry, 0)",
+            "old": null,
+            "new": 169,
+            "stage": "none",
+            "kind": "modified"
+          },
+          {
+            "type": " ",
+            "text": "\tfor _, item := range entries {",
+            "old": 169,
+            "new": 170
+          },
+          {
+            "type": " ",
+            "text": "\t\tif opts.Month != \"\" && item.Date.Format(\"2006-01\") != opts.Month {",
+            "old": 170,
+            "new": 171
+          },
+          {
+            "type": " ",
+            "text": "\t\t\tcontinue",
+            "old": 171,
+            "new": 172
+          }
+        ],
+        "stage": "none"
+      }
+    ],
+    "stage": "partial",
+    "context": {
+      "43": 43,
+      "44": 44,
+      "45": 45,
+      "47": 47,
+      "48": 48,
+      "49": 49,
+      "50": 50,
+      "51": 51,
+      "52": 52,
+      "53": 53,
+      "54": 54,
+      "55": 55,
+      "56": 56,
+      "57": 57,
+      "58": 58,
+      "59": 59,
+      "60": 60,
+      "61": 61,
+      "62": 62,
+      "63": 63,
+      "64": 64,
+      "65": 65,
+      "66": 66,
+      "67": 67,
+      "68": 68,
+      "69": 69,
+      "70": 70,
+      "71": 71,
+      "72": 72,
+      "73": 73,
+      "74": 74,
+      "75": 75,
+      "76": 76,
+      "77": 77,
+      "78": 78,
+      "79": 79,
+      "80": 80,
+      "81": 81,
+      "82": 82,
+      "83": 83,
+      "84": 84,
+      "85": 85,
+      "86": 86,
+      "87": 87,
+      "88": 88,
+      "89": 89,
+      "90": 90,
+      "91": 91,
+      "92": 92,
+      "93": 93,
+      "94": 94,
+      "95": 95,
+      "96": 96,
+      "97": 97,
+      "98": 98,
+      "99": 99,
+      "100": 100,
+      "101": 101,
+      "102": 102,
+      "103": 103,
+      "104": 104,
+      "105": 105,
+      "106": 106,
+      "107": 107,
+      "108": 108,
+      "109": 109,
+      "110": 110,
+      "111": 111,
+      "112": 112,
+      "113": 113,
+      "114": 114,
+      "115": 115,
+      "116": 116,
+      "117": 117,
+      "118": 118,
+      "119": 119,
+      "120": 120,
+      "121": 121,
+      "122": 122,
+      "123": 123,
+      "124": 124,
+      "125": 125,
+      "127": 127,
+      "128": 128,
+      "129": 129,
+      "130": 130,
+      "131": 131,
+      "132": 132,
+      "133": 133,
+      "135": 134,
+      "136": 135,
+      "137": 136,
+      "138": 137,
+      "139": 138,
+      "140": 139,
+      "141": 140,
+      "142": 141,
+      "143": 142,
+      "144": 143,
+      "145": 144,
+      "146": 145,
+      "147": 146,
+      "148": 147,
+      "149": 148,
+      "150": 149,
+      "151": 150,
+      "152": 151,
+      "153": 152,
+      "154": 153,
+      "155": 154,
+      "156": 155,
+      "157": 156,
+      "158": 157,
+      "159": 158,
+      "160": 159,
+      "161": 160,
+      "162": 161,
+      "163": 162,
+      "164": 163,
+      "165": 164,
+      "166": 165,
+      "167": 166,
+      "168": 167,
+      "170": 169,
+      "171": 170,
+      "172": 171
+    },
+    "plus": 4,
+    "minus": 3
+  },
+  "live": {
+    "path": "internal/ledger/month.go",
+    "status": "U",
+    "headExists": false,
+    "indexExists": false,
+    "workExists": true,
+    "head": "",
+    "index": "",
+    "full": "package ledger\n\nimport \"time\"\n\nfunc InMonth(entries []Entry, month time.Time) []Entry {\n\tvar result []Entry\n\tfor _, item := range entries {\n\t\tif item.Date.Year() == month.Year() && item.Date.Month() == month.Month() {\n\t\t\tresult = append(result, item)\n\t\t}\n\t}\n\treturn result\n}\n",
+    "hunks": [
+      {
+        "id": "internal-ledger-month.go-h0",
+        "rows": [
+          {
+            "type": "+",
+            "text": "package ledger",
+            "old": null,
+            "new": 1,
+            "stage": "none",
+            "kind": "added"
+          },
+          {
+            "type": "+",
+            "text": "",
+            "old": null,
+            "new": 2,
+            "stage": "none",
+            "kind": "added"
+          },
+          {
+            "type": "+",
+            "text": "import \"time\"",
+            "old": null,
+            "new": 3,
+            "stage": "none",
+            "kind": "added"
+          },
+          {
+            "type": "+",
+            "text": "",
+            "old": null,
+            "new": 4,
+            "stage": "none",
+            "kind": "added"
+          },
+          {
+            "type": "+",
+            "text": "func InMonth(entries []Entry, month time.Time) []Entry {",
+            "old": null,
+            "new": 5,
+            "stage": "none",
+            "kind": "added"
+          },
+          {
+            "type": "+",
+            "text": "\tvar result []Entry",
+            "old": null,
+            "new": 6,
+            "stage": "none",
+            "kind": "added"
+          },
+          {
+            "type": "+",
+            "text": "\tfor _, item := range entries {",
+            "old": null,
+            "new": 7,
+            "stage": "none",
+            "kind": "added"
+          },
+          {
+            "type": "+",
+            "text": "\t\tif item.Date.Year() == month.Year() && item.Date.Month() == month.Month() {",
+            "old": null,
+            "new": 8,
+            "stage": "none",
+            "kind": "added"
+          },
+          {
+            "type": "+",
+            "text": "\t\t\tresult = append(result, item)",
+            "old": null,
+            "new": 9,
+            "stage": "none",
+            "kind": "added"
+          },
+          {
+            "type": "+",
+            "text": "\t\t}",
+            "old": null,
+            "new": 10,
+            "stage": "none",
+            "kind": "added"
+          },
+          {
+            "type": "+",
+            "text": "\t}",
+            "old": null,
+            "new": 11,
+            "stage": "none",
+            "kind": "added"
+          },
+          {
+            "type": "+",
+            "text": "\treturn result",
+            "old": null,
+            "new": 12,
+            "stage": "none",
+            "kind": "added"
+          },
+          {
+            "type": "+",
+            "text": "}",
+            "old": null,
+            "new": 13,
+            "stage": "none",
+            "kind": "added"
+          }
+        ],
+        "stage": "none"
+      }
+    ],
+    "stage": "none",
+    "context": {},
+    "plus": 13,
+    "minus": 0,
+    "untracked": true
+  }
+}
