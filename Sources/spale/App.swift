@@ -5,7 +5,7 @@ import SpaleCore
 final class CommandHint: NSView {
     override var isFlipped: Bool { true }
     private var text: NSAttributedString {
-        let text = NSMutableAttributedString(string: "use spale . in anywhere to open it.", attributes: [.font: Theme.ui, .foregroundColor: Theme.muted])
+        let text = NSMutableAttributedString(string: "Run spale . in a terminal.", attributes: [.font: Theme.ui, .foregroundColor: Theme.muted])
         text.addAttributes([.font: Theme.code, .foregroundColor: Theme.soft], range: NSRange(location: 4, length: 7))
         text.addAttribute(.kern, value: 6, range: NSRange(location: 3, length: 1))
         text.addAttribute(.kern, value: 6, range: NSRange(location: 10, length: 1))
@@ -172,12 +172,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         workspaces[i].saveAll { [weak self] success in if success { self?.saveWorkspaces(i + 1, completion: completion) } else { completion(false) } }
     }
     func open(_ input: URL) {
-        let url = input.standardizedFileURL.resolvingSymlinksInPath()
+        let metadata = Git.isMetadata(input)
+        let url = metadata ? input.standardizedFileURL : input.standardizedFileURL.resolvingSymlinksInPath()
         var directory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &directory) else { showError("The path does not exist."); return }
-        let root = Git.root(containing: url)
+        let root = metadata ? nil : Git.root(containing: url)
         if directory.boolValue && root == nil { showError("\"\(url.lastPathComponent)\" is not in a Git repository."); return }
-        if let existing = workspaces.first(where: { root != nil ? $0.root == root : $0.standalone?.fileURL?.resolvingSymlinksInPath() == url }) {
+        if let existing = workspaces.first(where: { root != nil ? $0.root == root : $0.standalone?.fileURL == url }) {
             if let root, !directory.boolValue { existing.openFull(String(url.path.dropFirst(root.path.count + 1))) }
             existing.show(); return
         }

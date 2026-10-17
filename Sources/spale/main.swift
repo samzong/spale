@@ -10,7 +10,7 @@ if isCLI {
     }
     let path = arguments.first ?? FileManager.default.currentDirectoryPath
     let expanded = (path as NSString).expandingTildeInPath
-    let url = URL(fileURLWithPath: expanded, relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)).standardizedFileURL.resolvingSymlinksInPath()
+    let url = URL(fileURLWithPath: expanded, relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)).standardizedFileURL
     var directory: ObjCBool = false
     guard FileManager.default.fileExists(atPath: url.path, isDirectory: &directory) else {
         FileHandle.standardError.write(Data("spale: the path does not exist.\n".utf8)); exit(1)

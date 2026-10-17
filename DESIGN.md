@@ -13,7 +13,7 @@ Platform and stack: macOS only, Swift and AppKit, no SwiftUI, zero configuration
 
 ### Boundary
 
-spale never performs a Git operation and never writes Git state. It has no history, log, blame, commit, stage, unstage, checkout, branch switching, stash, or remote features. It reads the working tree, the index, and `HEAD`, and nothing else.
+spale never performs a Git operation and never writes Git state. It has no history, log, blame, commit, stage, unstage, checkout, branch switching, stash, or remote features. It reads the working tree, the index, and `HEAD`, and nothing else. Every save checks the destination again, including Save As and symbolic links. Git metadata in ordinary repositories, bare repositories, and separate Git directories is protected. A rejected save preserves the document's path and unsaved edits. This protection does not repair earlier changes to Git metadata.
 
 The editor excludes project search, multiple cursors, completion, language servers, formatting, bracket pairing, plugins, tabs, split panes, a repository file tree, and a terminal.
 
@@ -56,7 +56,7 @@ Layout, top to bottom: title bar, sidebar plus reader, window bar.
 - Main checkout: `ledger  main`
 - Linked worktree: `ledger › review-5  feat/review`
 
-The branch is dimmed. A `●` follows the name while any file in the window has unsaved edits. The title never contains a file path. On the right are icon buttons: Previous change, Next change, Read full file; in the full-file view a Back button appears on the left of that group.
+The branch is dimmed. A `●` follows the name while any file in the window has unsaved edits. The title never contains a file path. On the right are icon buttons: Previous change, Next change, and a source toggle. The toggle uses code brackets for Show source and text lines for Show changes. It stays in the same position in both views.
 
 **Sidebar.** Header `CHANGED FILES` with the number of unique files across both groups. Two groups, `Staged` and `Unstaged`, each listing its files. A partially staged file appears in both. Each row shows the group's real Git status letter, coloured, with no background:
 
@@ -85,7 +85,7 @@ A repository window has two continuous streams. Each concatenates the diffs of i
 - **Unstaged stream**: index → worktree. What changed since the last `git add`. Open by default. Editable.
 - **Staged stream**: `HEAD` → index. What would be committed. Strictly read-only, because its right side is the index snapshot, not a file on disk.
 
-Clicking a group heading switches to that stream. Clicking a file in a group switches to that stream and scrolls to that file. When `git add` runs in a terminal, the added changes move from the Unstaged stream to the Staged stream live.
+Clicking a group heading switches to that stream. Clicking anywhere in a file row, including its counts and blank space, switches to that stream and scrolls to that file. When `git add` runs in a terminal, the added changes move from the Unstaged stream to the Staged stream live.
 
 Reading position, expanded folds, caret, and collapsed files are kept per window and per stream. Switching streams restores each stream exactly where it was left.
 
@@ -94,15 +94,16 @@ Reading position, expanded folds, caret, and collapsed files are kept per window
 - Each file starts with a file header row: status, path, and `+N −N` counts. Clicking the header row collapses or expands that file's diff. Collapsed files are skipped by Previous/Next change. A collapsed file expands automatically when an agent writes to it, including when it has unsaved edits, so new content and the `Changed on disk` banner are never hidden. Collapse state lives in memory only.
 - Deleted lines are shown as read-only red rows. Added lines are green. Within a changed line pair, the changed words are highlighted.
 - Unchanged runs of four or more lines between hunks collapse into a `N unchanged lines` fold. Clicking it expands the lines in place and turns its arrow over; clicking it again folds them.
-- In the Staged stream, Markdown files render as prose with changed blocks marked. Everywhere else, every file is plain text with syntax highlighting.
+- In the Staged stream, `.md` and `.markdown` files render as prose with added and removed blocks marked. Headings, paragraphs, lists, quotes, code, tables, and HTTP(S) links use the native Markdown parser. Block comparison includes structure and link destinations; line wrapping alone does not mark unchanged prose. Images do not fetch remote content. The source toggle opens the full-file view. Everywhere else, every file is plain text with syntax highlighting.
+- Markdown parsing and comparison run with the repository computation off the main thread. Native attributed text keeps prose in the existing reader without a web view or another rendering dependency. Tables use native text cells to preserve empty columns, column alignment, and wrapping within each cell. Save protection belongs to the shared document write boundary so menu saves and AppKit save operations use the same check.
 - When an agent write changes a visible line, that line shows a soft highlight that fades over 3 seconds. The view never jumps: the reading position is anchored to the line under the reader, even when the write splits or merges the fold that line was in.
 - Empty streams read `No unstaged changes.` or `No staged changes.` A repository with no changes at all reads `No changes. A little room to think.`
 
 ### Full-file view
 
-Read full file (the button) opens the current file's whole content from disk, editable, with changes marked against `HEAD`: added and modified lines carry a gutter mark, and deleted lines appear as a marker at their boundary. It is the same view from either stream, so a fully staged file can still be edited.
+Show source opens the current file's whole content from disk, editable, with changes marked against `HEAD`: added and modified lines carry a gutter mark, and deleted lines appear as a marker at their boundary. It is the same view from either stream, so a fully staged file can still be edited.
 
-Its file header is identical to the stream's header for that file. Clicking another file in the sidebar shows that file's full content and stays in the full-file view. Back or Esc returns to the stream at the exact position it was opened from.
+Its file header is identical to the stream's header for that file. Clicking another file in the sidebar shows that file's full content and stays in the full-file view. Clicking the same toggle, now Show changes, or pressing Esc returns to the stream at the exact position it was opened from.
 
 ### Navigation
 
@@ -151,7 +152,7 @@ Standard macOS window restoration reopens the previous repository and file windo
 A single quiet window, centred, about 640 × 420 pt, with no window bar and nothing to click:
 
 - The spale mark uses a 72 pt canvas with a visible stroke about 40 pt wide. It uses the icon's warm gold in dark appearance and darker bronze in light appearance, including during the opening. The mark and wordmark form one centred group.
-- At the bottom, one centred line reads `use spale . in anywhere to open it.` The command `spale .` uses Fira Code in the soft colour. The surrounding text uses the muted system font. A quiet line-colour chip surrounds the command, with 6 pt horizontal padding and a 5 pt corner radius. The chip and text fade in together.
+- At the bottom, one centred line reads `Run spale . in a terminal.` The command `spale .` uses Fira Code in the soft colour. The surrounding text uses the muted system font. A quiet line-colour chip surrounds the command, with 6 pt horizontal padding and a 5 pt corner radius. The chip and text fade in together.
 
 The empty-state window is not listed in the window bar.
 
@@ -172,6 +173,8 @@ Typography uses two families: Fira Code Light for code and the wordmark, and the
 | sidebar file names | system 13 |
 | file header path | system 13 medium |
 | empty-stream message | system 15 |
+| Markdown body | system 14, 4 pt line spacing, 10 pt paragraph spacing |
+| Markdown headings | system semibold 24 / 20 / 16, 12 pt paragraph spacing |
 
 Appearance follows the system light or dark setting; there is no in-app switch.
 
