@@ -114,7 +114,7 @@ public struct RepositorySnapshot: Sendable {
         let name = isLinked ? "\(mainName) › \(root.lastPathComponent)" : root.lastPathComponent
         var files: [String: Data] = [:], index: [String: Data] = [:], head: [String: Data] = [:]
         for path in Set(changes.map(\.path)).union(extraPaths) {
-            files[path] = (try? Data(contentsOf: root.appendingPathComponent(path))) ?? Data()
+            files[path] = try? Data(contentsOf: root.appendingPathComponent(path))
             index[path] = (try? Git.run(["show", ":\(path)"], at: root)) ?? Data()
             let oldPath = changes.first { $0.path == path && $0.stream == .staged }?.oldPath ?? path
             head[path] = (try? Git.run(["show", "HEAD:\(oldPath)"], at: root)) ?? Data()

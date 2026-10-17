@@ -133,6 +133,141 @@ final class CoreTests {
         precondition(Git.isMetadata(legacy.appendingPathComponent("config")))
     }
 
+    func testOpenTargetResolvesDirectoriesFilesAndRepositoryPaths() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let plain = root.appendingPathComponent("plain", isDirectory: true)
+        try FileManager.default.createDirectory(at: plain, withIntermediateDirectories: true)
+        let plainTarget = try OpenTarget.resolve(plain)
+        precondition(plainTarget.root?.standardizedFileURL == plain.standardizedFileURL)
+        precondition(plainTarget.file == nil && !plainTarget.isRepository)
+        let alias = root.appendingPathComponent("plain-alias", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: plain)
+        let aliasTarget = try OpenTarget.resolve(alias)
+        precondition(aliasTarget == plainTarget)
+        let file = plain.appendingPathComponent("note.txt")
+        try Data("fictional note\n".utf8).write(to: file)
+        let fileTarget = try OpenTarget.resolve(file)
+        precondition(fileTarget.root == nil && fileTarget.file?.standardizedFileURL == file.standardizedFileURL)
+        precondition(!fileTarget.isRepository)
+        let repository = root.appendingPathComponent("repository", isDirectory: true)
+        try FileManager.default.createDirectory(at: repository, withIntermediateDirectories: true)
+        _ = try Git.run(["init", "-q"], at: repository)
+        let bare = root.appendingPathComponent("vault", isDirectory: true)
+        try FileManager.default.createDirectory(at: bare, withIntermediateDirectories: true)
+        _ = try Git.run(["init", "--bare", "-q"], at: bare)
+        for forbidden in [repository.appendingPathComponent(".git"), bare] {
+            do { _ = try OpenTarget.resolve(forbidden); preconditionFailure("metadata roots must throw") }
+            catch let error as CocoaError { precondition(error.code == .fileReadNoPermission) }
+        }
+        let nested = repository.appendingPathComponent("nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        let trackedCandidate = nested.appendingPathComponent("draft.txt")
+        try Data("fictional draft\n".utf8).write(to: trackedCandidate)
+        let repositoryFileTarget = try OpenTarget.resolve(trackedCandidate)
+        precondition(repositoryFileTarget.root?.standardizedFileURL == repository.standardizedFileURL)
+        precondition(repositoryFileTarget.isRepository)
+        precondition(repositoryFileTarget.file?.standardizedFileURL == trackedCandidate.standardizedFileURL)
+        let repositoryDirectoryTarget = try OpenTarget.resolve(nested)
+        precondition(repositoryDirectoryTarget.root?.standardizedFileURL == repository.standardizedFileURL)
+        precondition(repositoryDirectoryTarget.isRepository && repositoryDirectoryTarget.file == nil)
+        do {
+            _ = try OpenTarget.resolve(root.appendingPathComponent("missing"))
+            preconditionFailure("missing paths must throw")
+        } catch let error as CocoaError {
+            precondition(error.code == .fileNoSuchFile)
+        }
+    }
+
+    func testUnreadableFoldersAreNotEmpty() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let locked = root.appendingPathComponent("Restricted", isDirectory: true)
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: locked.path)
+            try? FileManager.default.removeItem(at: root)
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: locked.path)
+        precondition(!FileManager.default.isReadableFile(atPath: locked.path))
+        let listing = try FolderListing.load(root: root)
+        precondition(listing.entries.count == 1 && !listing.entries[0].isEmpty)
+        do { _ = try FolderListing.load(root: root, path: "Restricted"); preconditionFailure("unreadable directories must throw") }
+        catch let error as CocoaError { precondition(error.code == .fileReadNoPermission) }
+    }
+
+    func testRepositoryDistinguishesMissingAndEmptyFiles() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try Git.run(["init", "-q"], at: root)
+        try Data().write(to: root.appendingPathComponent("blank.txt"))
+        let snapshot = try RepositorySnapshot.load(root, extraPaths: ["blank.txt", "missing.txt"])
+        precondition(snapshot.files["blank.txt"] == Data())
+        precondition(snapshot.files["missing.txt"] == nil)
+    }
+
+    func testFolderListingShowsOneLevelAndReportsTruncation() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try Git.run(["init", "-q"], at: root)
+        func write(_ path: String, _ content: String = "fictional\n") throws {
+            let url = root.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(content.utf8).write(to: url)
+        }
+        try write(".hidden", "hidden fixture\n")
+        try write(".gitignore", "ignored.fixture\n")
+        try write("ignored.fixture", "ignored fixture\n")
+        try write("zebra.txt")
+        try write("alpha/inside.txt")
+        try write(".secret/inside.txt")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("empty", isDirectory: true), withIntermediateDirectories: true)
+        let alias = root.appendingPathComponent("linked-folder", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: root.appendingPathComponent("alpha", isDirectory: true))
+        try write("Beta/note.txt")
+        try write("metadata-only/.git", "fictional metadata\n")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("nested-meta/.git"), withIntermediateDirectories: true)
+        try write("alpha/.git", "fictional metadata\n")
+        try write("Amber.txt")
+        let listing = try FolderListing.load(root: root)
+        let paths = listing.entries.map(\.path)
+        precondition(!listing.truncated)
+        precondition(paths == [".secret", "alpha", "Beta", "empty", "metadata-only", "nested-meta", ".gitignore", ".hidden", "Amber.txt", "ignored.fixture", "linked-folder", "zebra.txt"])
+        precondition(listing.entries.first { $0.path == "empty" }?.isEmpty == true)
+        for name in ["metadata-only", "nested-meta"] {
+            precondition(listing.entries.first { $0.path == name }?.isEmpty == true)
+            let contents = try FolderListing.load(root: root, path: name)
+            precondition(contents.entries.isEmpty)
+        }
+        precondition(listing.entries.first { $0.path == "alpha" }?.isEmpty == false)
+        precondition(listing.entries.filter(\.isHidden).map(\.path) == [".secret", ".gitignore", ".hidden"])
+        let children = try FolderListing.load(root: root, path: ".secret")
+        precondition(children.entries.count == 1 && !children.entries[0].isHidden)
+        let alpha = try FolderListing.load(root: root, path: "alpha")
+        precondition(alpha.entries.map(\.path) == ["alpha/inside.txt"])
+        do { _ = try FolderListing.load(root: root, path: "linked-folder"); preconditionFailure("directory links must not expand") }
+        catch let error as CocoaError { precondition(error.code == .fileReadUnknown) }
+
+        precondition(paths.contains(".hidden") && paths.contains(".gitignore") && paths.contains("ignored.fixture"))
+        precondition(paths.contains("alpha") && paths.contains("empty") && paths.contains(".secret"))
+        precondition(!paths.contains { $0 == ".git" || $0.hasPrefix(".git/") })
+        precondition(!paths.contains("alpha/inside.txt") && !paths.contains(".secret/inside.txt"))
+        var reachedFile = false
+        for entry in listing.entries {
+            if !entry.isDirectory { reachedFile = true }
+            if entry.isDirectory { precondition(!reachedFile) }
+        }
+        precondition(listing.entries.first { $0.path == "zebra.txt" }?.isDirectory == false)
+        let link = listing.entries.first { $0.path == "linked-folder" }
+        precondition(link != nil && link?.isSymbolicLink == true)
+        let emptyListing = try FolderListing.load(root: root, path: "empty")
+        precondition(emptyListing.entries.isEmpty && !emptyListing.truncated)
+        let limited = try FolderListing.load(root: root, limit: 3)
+        precondition(limited.entries.count == 3 && limited.truncated)
+    }
+
     func testMarkdownDiffPreservesProseAndChangedBlocks() {
         let before = "# Ledger\n\nA **clear** paragraph with café 🌿.\n\n- First\n- Second\n\n```swift\nlet total = 40\n```\n"
         let after = before.replacingOccurrences(of: "clear", with: "short").replacingOccurrences(of: "40", with: "45")
@@ -170,5 +305,9 @@ suite.testNonUTF8AndBinaryAreReadOnly()
 suite.testWordHighlightRequiresSimilarContent()
 try suite.testRealRepositoryStreamsAndRootDeduplication()
 try suite.testGitMetadataIncludesAliasesAndRepositoryLayouts()
+try suite.testOpenTargetResolvesDirectoriesFilesAndRepositoryPaths()
+try suite.testFolderListingShowsOneLevelAndReportsTruncation()
+try suite.testUnreadableFoldersAreNotEmpty()
+try suite.testRepositoryDistinguishesMissingAndEmptyFiles()
 suite.testMarkdownDiffPreservesProseAndChangedBlocks()
-print("PASS: seven core contracts, including Git metadata protection and Markdown block changes")
+print("PASS: eleven core contracts, including unreadable folders and missing files")

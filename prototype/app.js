@@ -1208,7 +1208,7 @@ function renderTree() {
   activeWindow.expandedFolders ??= new Set(['.github', '.vscode', 'Archive', 'build']);
   const root = { children: new Map() };
   const add = (path, index) => {
-    if (path === '.git' || path.startsWith('.git/')) return;
+    if (path.split('/').some(name => name.toLowerCase() === '.git')) return;
     let parent = root;
     path.split('/').forEach((name, depth, parts) => {
       if (!parent.children.has(name)) parent.children.set(name, { name, path: parts.slice(0, depth + 1).join('/'), children: new Map() });

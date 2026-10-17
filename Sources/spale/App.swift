@@ -151,6 +151,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             else { open(url) }
         }
     }
+    func application(_ sender: NSApplication, openFiles filenames: [String]) {
+        filenames.forEach { open(URL(fileURLWithPath: $0)) }
+        sender.reply(toOpenOrPrint: .success)
+    }
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool { false }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { if !flag { showEmpty() }; return true }
@@ -172,17 +176,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         workspaces[i].saveAll { [weak self] success in if success { self?.saveWorkspaces(i + 1, completion: completion) } else { completion(false) } }
     }
     func open(_ input: URL) {
-        let metadata = Git.isMetadata(input)
-        let url = metadata ? input.standardizedFileURL : input.standardizedFileURL.resolvingSymlinksInPath()
-        var directory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &directory) else { showError("The path does not exist."); return }
-        let root = metadata ? nil : Git.root(containing: url)
-        if directory.boolValue && root == nil { showError("\"\(url.lastPathComponent)\" is not in a Git repository."); return }
-        if let existing = workspaces.first(where: { root != nil ? $0.root == root : $0.standalone?.fileURL == url }) {
-            if let root, !directory.boolValue { existing.openFull(String(url.path.dropFirst(root.path.count + 1))) }
+        let target: OpenTarget
+        do { target = try OpenTarget.resolve(input) }
+        catch { showError((error as? CocoaError)?.code == .fileNoSuchFile ? "The path does not exist." : "This folder cannot be opened."); return }
+        if let existing = workspaces.first(where: { target.root != nil ? $0.root == target.root : $0.standalone?.fileURL == target.file }) {
+            if let root = target.root, let file = target.file { existing.openFull(String(file.path.dropFirst(root.path.count + 1))) }
             existing.show(); return
         }
-        let workspace = Workspace(root: root, file: directory.boolValue ? nil : url)
+        let workspace = Workspace(root: target.root, file: target.file, isRepository: target.isRepository)
         workspaces.append(workspace); emptyWindow?.close(); emptyWindow = nil; emptyView = nil
         workspace.show()
         persist()
