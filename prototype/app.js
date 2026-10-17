@@ -28,8 +28,6 @@ let windows = [];
 let activeWindow;
 let nextWindow = 1;
 let composing = false;
-let emptyFolderStyle = 'leaf';
-let hiddenItemStyle = 'muted';
 const linesOf = text => text.replace(/\n$/, '').split('\n');
 const dirty = file => file.full !== file.disk;
 const dirtyMark = file => dirty(file) ? '<span class="unsaved" aria-label="Unsaved changes">●</span>' : '';
@@ -1210,6 +1208,7 @@ function renderTree() {
   activeWindow.expandedFolders ??= new Set(['.github', '.vscode', 'Archive', 'build']);
   const root = { children: new Map() };
   const add = (path, index) => {
+    if (path === '.git' || path.startsWith('.git/')) return;
     let parent = root;
     path.split('/').forEach((name, depth, parts) => {
       if (!parent.children.has(name)) parent.children.set(name, { name, path: parts.slice(0, depth + 1).join('/'), children: new Map() });
@@ -1230,10 +1229,9 @@ function renderTree() {
     })
     .map(node => {
       const folder = node.index === undefined;
-      const empty = folder && node.children.size === 0;
-      const expandable = folder && (!empty || emptyFolderStyle === 'message');
+      const expandable = folder && node.children.size > 0;
       const expanded = expandable && activeWindow.expandedFolders.has(node.path);
-      const hidden = hiddenItemStyle === 'muted' && node.name.startsWith('.');
+      const hidden = node.name.startsWith('.');
       const file = files[node.index];
       const attributes = folder
         ? expandable ? `data-folder="${esc(node.path)}" aria-expanded="${expanded}"` : 'aria-disabled="true"'
@@ -1242,7 +1240,7 @@ function renderTree() {
         <span class="tree-chevron ${expanded ? 'open' : ''}">${expandable ? '›' : ''}</span>
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="${folder ? 'M2 4h5l1.5 2H14v7H2z' : 'M4 2h5l3 3v9H4z M9 2v4h3'}"/></svg>
         <span class="tree-name">${esc(node.name)}</span>${file ? dirtyMark(file) : ''}</button>
-        ${expandable ? `<div class="tree-children ${expanded ? 'open' : ''}"><div>${empty ? `<div class="tree-empty" style="--depth:${depth + 1}">Empty</div>` : children(node, depth + 1)}</div></div>` : ''}</div>`;
+        ${expandable ? `<div class="tree-children ${expanded ? 'open' : ''}"><div>${children(node, depth + 1)}</div></div>` : ''}</div>`;
     }).join('');
   $('#tree').innerHTML = children(root);
   $('#tree').querySelectorAll('[data-folder]').forEach(button => button.onclick = () => {
@@ -1268,16 +1266,6 @@ function renderTree() {
 $('#context-choice').onclick = () => {
   const target = windows.find(win => activeWindow.folder ? !win.folder && !win.single : win.folder);
   if (target) activateWindow(target.id);
-};
-$('#empty-choice').onclick = () => {
-  emptyFolderStyle = emptyFolderStyle === 'leaf' ? 'message' : 'leaf';
-  $('#empty-choice').textContent = `Empty: ${emptyFolderStyle === 'leaf' ? 'no arrow' : 'expand + message'}`;
-  renderTree();
-};
-$('#hidden-choice').onclick = () => {
-  hiddenItemStyle = hiddenItemStyle === 'muted' ? 'regular' : 'muted';
-  $('#hidden-choice').textContent = `Hidden: ${hiddenItemStyle === 'muted' ? 'muted' : 'regular'}`;
-  renderTree();
 };
 $('#tree-heading').onclick = () => {
   const expanded = $('#tree-heading').getAttribute('aria-expanded') !== 'true';
