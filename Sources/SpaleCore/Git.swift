@@ -36,6 +36,23 @@ public struct Git {
         guard let path = try? string(["rev-parse", "--show-toplevel"], at: directory) else { return nil }
         return URL(fileURLWithPath: path, isDirectory: true).resolvingSymlinksInPath()
     }
+
+    public static func isMetadata(_ url: URL) -> Bool {
+        let input = url.standardizedFileURL
+        let target = input.resolvingSymlinksInPath().standardizedFileURL
+        if [input, target].contains(where: { $0.pathComponents.contains(where: { $0.lowercased() == ".git" }) }) { return true }
+        let destination = input.deletingLastPathComponent().resolvingSymlinksInPath().appendingPathComponent(input.lastPathComponent).standardizedFileURL
+        for candidate in Set([destination, target]) {
+            var directory = candidate
+            while true {
+                if (try? FileManager.default.attributesOfItem(atPath: directory.appendingPathComponent("HEAD").path)) != nil,
+                   (try? run(["rev-parse", "--resolve-git-dir", directory.path], at: URL(fileURLWithPath: "/", isDirectory: true))) != nil { return true }
+                if directory.path == "/" { break }
+                directory = directory.deletingLastPathComponent().standardizedFileURL
+            }
+        }
+        return false
+    }
 }
 
 public enum Stream: String, CaseIterable, Sendable { case staged, unstaged }

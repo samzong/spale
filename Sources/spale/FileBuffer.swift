@@ -30,8 +30,23 @@ final class FileBuffer: NSDocument {
 
     override func data(ofType typeName: String) throws -> Data { content.encode(text) }
 
+    private func validateDestination(_ url: URL) throws {
+        guard content.editable else { throw CocoaError(.fileWriteNoPermission) }
+        guard !Git.isMetadata(url) else {
+            throw NSError(domain: "us.samzong.spale", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "Git metadata is read-only.",
+                                     NSLocalizedRecoverySuggestionErrorKey: "Save this text outside the Git metadata directory."])
+        }
+    }
+
     override func write(to url: URL, ofType typeName: String) throws {
+        try validateDestination(url)
         try content.encode(text).write(to: url, options: .atomic)
+    }
+
+    override func writeSafely(to url: URL, ofType typeName: String, for saveOperation: NSDocument.SaveOperationType) throws {
+        try validateDestination(url)
+        try super.writeSafely(to: url, ofType: typeName, for: saveOperation)
     }
 
     func receive(_ data: Data, observedAt: Double = ProcessInfo.processInfo.systemUptime) -> Bool {
@@ -54,15 +69,19 @@ final class FileBuffer: NSDocument {
 
     func saveNow(completion: @escaping (Bool) -> Void) {
         guard content.editable else { completion(false); return }
-        if let url = fileURL {
-            do {
-                let data = content.encode(text)
-                try data.write(to: url, options: .atomic)
-                lastSavedAt = ProcessInfo.processInfo.systemUptime
-                diskData = data; content = TextContent(data); text = content.text; conflict = false
-                updateChangeCount(.changeCleared); didChange?(); completion(true)
-            } catch { NSApp.presentError(error); completion(false) }
-        } else { saveAsNow(completion: completion) }
+        if let url = fileURL { save(to: url, completion: completion) }
+        else { saveAsNow(completion: completion) }
+    }
+
+    private func save(to url: URL, completion: @escaping (Bool) -> Void) {
+        do {
+            let data = content.encode(text)
+            try write(to: url, ofType: fileType ?? "public.plain-text")
+            fileURL = url; path = url.path
+            lastSavedAt = ProcessInfo.processInfo.systemUptime
+            diskData = data; content = TextContent(data); text = content.text; conflict = false
+            updateChangeCount(.changeCleared); didChange?(); completion(true)
+        } catch { NSApp.presentError(error); completion(false) }
     }
 
     func saveAsNow(completion: @escaping (Bool) -> Void) {
@@ -70,7 +89,7 @@ final class FileBuffer: NSDocument {
         panel.nameFieldStringValue = fileURL?.lastPathComponent ?? "Untitled"
         panel.begin { [weak self] result in
             guard result == .OK, let self, let url = panel.url else { completion(false); return }
-            self.fileURL = url; self.path = url.path; self.saveNow(completion: completion)
+            self.save(to: url, completion: completion)
         }
     }
 

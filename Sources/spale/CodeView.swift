@@ -17,6 +17,7 @@ final class CodeView: NSTextView {
     var lines: [RenderLine] = []
     var single = false
     var full = false
+    var prose = false
     var foldClick: ((Range<Int>) -> Void)?
     var turningFold: Int?
     var escape: (() -> Void)?
@@ -34,7 +35,7 @@ final class CodeView: NSTextView {
         }
     }
     var numberWidth: CGFloat = 30
-    var codeInset: CGFloat { single ? 20 : full ? 32 + numberWidth : 40 + numberWidth * 2 }
+    var codeInset: CGFloat { single ? 20 : prose ? 32 : full ? 32 + numberWidth : 40 + numberWidth * 2 }
 
     override func drawBackground(in rect: NSRect) {
         Theme.bg.setFill(); rect.fill()
@@ -59,7 +60,7 @@ final class CodeView: NSTextView {
     }
 
     func drawGutter(_ dirtyRect: NSRect) {
-        guard let manager = layoutManager, let container = textContainer, !single else { return }
+        guard let manager = layoutManager, let container = textContainer, !single, !prose else { return }
         let attributes: [NSAttributedString.Key: Any] = [.font: Theme.code, .foregroundColor: Theme.muted]
         let visible = dirtyRect.intersection(visibleRect).offsetBy(dx: -textContainerOrigin.x, dy: -textContainerOrigin.y)
         let visibleCharacters = manager.characterRange(forGlyphRange: manager.glyphRange(forBoundingRect: visible, in: container), actualGlyphRange: nil)
@@ -135,6 +136,7 @@ final class FileSection: Surface, NSTextViewDelegate {
     var applying = false
     var caretAfterEdit: Int?
     var changeOffsets: [Int] = []
+    var prose: [MarkdownChange]?
     var topPadding: CGFloat { header.isHidden ? 0 : 48 }
 
     init(key: String, path: String, buffer: FileBuffer) {
@@ -163,14 +165,16 @@ final class FileSection: Surface, NSTextViewDelegate {
         code.textContainerInset = NSSize(width: 104, height: 0)
         code.usesFindBar = true; code.isIncrementalSearchingEnabled = true; code.allowsUndo = false
         code.selectedTextAttributes = [.backgroundColor: Theme.selection]
+        code.linkTextAttributes = [.foregroundColor: Theme.soft, .underlineStyle: NSUnderlineStyle.single.rawValue]
         code.foldClick = { [weak self] range in self?.toggleFold(range) }
         conflictBar.isHidden = true
     }
     required init?(coder: NSCoder) { fatalError() }
-    func configure(rows: [DiffRow], status: Character, title: String, full: Bool, readOnly: Bool, single: Bool = false) {
+    func configure(rows: [DiffRow], status: Character, title: String, full: Bool, readOnly: Bool, single: Bool = false, prose: [MarkdownChange]? = nil) {
         self.rows = rows; self.full = full; self.readOnly = readOnly
         baseline = rows.filter { $0.kind != .addition }.map(\.text).joined()
         header.isHidden = single; code.single = single; code.full = full
+        self.prose = prose; code.prose = prose != nil
         let maximum = rows.reduce(0) { max($0, $1.oldLine ?? 0, $1.newLine ?? 0) }
         code.numberWidth = (String(repeating: "0", count: max(2, String(maximum).count)) as NSString).size(withAttributes: [.font: Theme.code]).width
         code.textContainerInset.width = code.codeInset
@@ -192,6 +196,7 @@ final class FileSection: Surface, NSTextViewDelegate {
     func render() {
         applying = true
         defer { applying = false }
+        if code.prose && buffer.content.reason == nil { renderProse(); return }
         let selectedSource = caretAfterEdit ?? Projection.sourceRange(for: code.selectedRange(), segments: segments, sourceLength: (buffer.text as NSString).length)?.location
         let output = NSMutableAttributedString()
         segments = []; code.lines = []; changeOffsets = []
@@ -255,6 +260,25 @@ final class FileSection: Surface, NSTextViewDelegate {
             code.setSelectedRange(NSRange(location: display, length: 0))
         }
         caretAfterEdit = nil
+        configureConflict()
+        code.needsDisplay = true; gutter.needsDisplay = true
+    }
+
+    private func renderProse() {
+        let selection = code.selectedRange()
+        let output = NSMutableAttributedString()
+        segments = []; code.lines = []; changeOffsets = []
+        for change in prose ?? [] {
+            let rendered = MarkdownRenderer.render(change.block)
+            let range = NSRange(location: output.length, length: rendered.length)
+            output.append(rendered)
+            code.lines.append(RenderLine(range: range, oldLine: change.oldLine, newLine: change.newLine, kind: change.kind, fold: nil))
+            if change.kind != .context { changeOffsets.append(range.location) }
+        }
+        code.textStorage?.setAttributedString(output)
+        lastRendered = output.string
+        let start = min(selection.location, output.length)
+        code.setSelectedRange(NSRange(location: start, length: min(selection.length, output.length - start)))
         configureConflict()
         code.needsDisplay = true; gutter.needsDisplay = true
     }

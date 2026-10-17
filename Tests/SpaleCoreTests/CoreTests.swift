@@ -73,6 +73,94 @@ final class CoreTests {
         precondition(Git.root(containing: root.appendingPathComponent("missing")) == nil)
         precondition(!(FileManager.default.fileExists(atPath: root.appendingPathComponent(".git/index.lock").path)))
     }
+    func testGitMetadataIncludesAliasesAndRepositoryLayouts() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        func repository(_ path: String, bare: Bool) throws -> URL {
+            let url = root.appendingPathComponent(path)
+            for directory in ["objects", "refs"] { try FileManager.default.createDirectory(at: url.appendingPathComponent(directory), withIntermediateDirectories: true) }
+            try Data("ref: refs/heads/main\n".utf8).write(to: url.appendingPathComponent("HEAD"))
+            try Data("[core]\nrepositoryformatversion = 0\nbare = \(bare)\n".utf8).write(to: url.appendingPathComponent("config"))
+            return url
+        }
+        let ordinary = try repository("working/.git", bare: false)
+        let bare = try repository("archive.git", bare: true)
+        let separate = try repository("metadata", bare: false)
+        let work = root.appendingPathComponent("separate-work")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        try Data("gitdir: \(separate.path)\n".utf8).write(to: work.appendingPathComponent(".git"))
+        let alias = root.appendingPathComponent("alias")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: separate)
+        for url in [ordinary, bare, separate, ordinary.appendingPathComponent("config"), bare.appendingPathComponent("HEAD"), bare.appendingPathComponent("objects/new"), separate.appendingPathComponent("config"), alias.appendingPathComponent("config"), work.appendingPathComponent(".git"), ordinary.appendingPathComponent("new/deep/file")] {
+            precondition(Git.isMetadata(url), url.path)
+        }
+        let externalConfig = root.appendingPathComponent("config-source")
+        let config = bare.appendingPathComponent("config")
+        try FileManager.default.moveItem(at: config, to: externalConfig)
+        try FileManager.default.createSymbolicLink(at: config, withDestinationURL: externalConfig)
+        precondition(Git.isMetadata(config))
+        precondition(!Git.isMetadata(externalConfig))
+        try Data("[broken\n".utf8).write(to: externalConfig)
+        precondition(Git.isMetadata(bare.appendingPathComponent("HEAD")))
+        precondition(Git.isMetadata(config))
+        let ordinaryFile = root.appendingPathComponent("working/note.txt")
+        let sibling = root.appendingPathComponent("metadata-notes/note.txt")
+        for url in [ordinaryFile, sibling, root.appendingPathComponent("working/.gitignore"), root.appendingPathComponent("outside.txt")] {
+            precondition(!Git.isMetadata(url), url.path)
+        }
+        let changingAlias = root.appendingPathComponent("changing-alias")
+        try Data("note\n".utf8).write(to: ordinaryFile)
+        try FileManager.default.createSymbolicLink(at: changingAlias, withDestinationURL: ordinaryFile)
+        precondition(!Git.isMetadata(changingAlias))
+        try FileManager.default.removeItem(at: changingAlias)
+        try FileManager.default.createSymbolicLink(at: changingAlias, withDestinationURL: bare.appendingPathComponent("HEAD"))
+        precondition(Git.isMetadata(changingAlias))
+        let linked = separate.appendingPathComponent("worktrees/review")
+        try FileManager.default.createDirectory(at: linked, withIntermediateDirectories: true)
+        try Data("ref: refs/heads/review\n".utf8).write(to: linked.appendingPathComponent("HEAD"))
+        try Data("../..\n".utf8).write(to: linked.appendingPathComponent("commondir"))
+        try Data("\(work.path)/.git\n".utf8).write(to: linked.appendingPathComponent("gitdir"))
+        precondition(Git.isMetadata(linked.appendingPathComponent("HEAD")))
+        precondition(Git.isMetadata(URL(fileURLWithPath: "/private" + bare.appendingPathComponent("HEAD").path)))
+        for name in ["archive\n", "archive\r"] {
+            let unusual = try repository(name, bare: true)
+            precondition(Git.isMetadata(unusual.appendingPathComponent("HEAD")))
+        }
+        let legacy = try repository("legacy.git", bare: true)
+        try FileManager.default.removeItem(at: legacy.appendingPathComponent("HEAD"))
+        try FileManager.default.createSymbolicLink(atPath: legacy.appendingPathComponent("HEAD").path, withDestinationPath: "refs/heads/main")
+        precondition(Git.isMetadata(legacy.appendingPathComponent("config")))
+    }
+
+    func testMarkdownDiffPreservesProseAndChangedBlocks() {
+        let before = "# Ledger\n\nA **clear** paragraph with café 🌿.\n\n- First\n- Second\n\n```swift\nlet total = 40\n```\n"
+        let after = before.replacingOccurrences(of: "clear", with: "short").replacingOccurrences(of: "40", with: "45")
+        let changes = MarkdownDiff.changes(before: before, after: after)
+        precondition(changes.map(\.kind) == [.context, .deletion, .addition, .context, .deletion, .addition])
+        let rendered = changes.map { String($0.block.content.characters) }
+        precondition(rendered[0] == "Ledger")
+        precondition(rendered[1] == "A clear paragraph with café 🌿.")
+        precondition(rendered[2] == "A short paragraph with café 🌿.")
+        precondition(rendered[3] == "FirstSecond")
+        precondition(rendered[4] == "let total = 40\n" && rendered[5] == "let total = 45\n")
+        precondition(changes[2].block.content.runs.contains { $0.inlinePresentationIntent?.contains(.stronglyEmphasized) == true })
+        precondition(changes[4].oldLine == 8 && changes[5].newLine == 8)
+        precondition(MarkdownDiff.changes(before: before, after: "").allSatisfy { $0.kind == .deletion })
+        precondition(MarkdownDiff.changes(before: "", after: after).allSatisfy { $0.kind == .addition })
+        precondition(MarkdownDiff.changes(before: before, after: before).allSatisfy { $0.kind == .context })
+        let reference = "[Guide][guide]\n\n[guide]: https://example.invalid\n"
+        precondition(MarkdownDiff.blocks(reference).first?.content.runs.first?.link?.absoluteString == "https://example.invalid")
+        let links = "[Guide][g]\n\nOther text.\n\n[g]: https://example.invalid/one\n"
+        let linkChanges = MarkdownDiff.changes(before: links, after: links.replacingOccurrences(of: "/one", with: "/two"))
+        precondition(linkChanges.map(\.kind) == [.deletion, .addition, .context])
+        precondition(linkChanges[1].block.content.runs.first?.link?.absoluteString == "https://example.invalid/two")
+        precondition(MarkdownDiff.changes(before: "# Heading\n", after: "## Heading\n").map(\.kind) == [.deletion, .addition])
+        precondition(MarkdownDiff.changes(before: "1. First\n2. Second\n", after: "3. First\n4. Second\n").map(\.kind) == [.deletion, .addition])
+        precondition(MarkdownDiff.changes(before: "A paragraph.\n", after: "A\nparagraph.\n").map(\.kind) == [.context])
+        precondition(MarkdownDiff.changes(before: "- ab\n- c\n", after: "- a\n- bc\n").map(\.kind) == [.deletion, .addition])
+        precondition(MarkdownDiff.changes(before: "|ab|c|\n|-|-|\n|d|e|\n", after: "|a|bc|\n|-|-|\n|d|e|\n").map(\.kind) == [.deletion, .addition])
+    }
 }
 
 let suite = CoreTests()
@@ -81,4 +169,6 @@ suite.testEncodingPreservesCRLFAndFinalNewline()
 suite.testNonUTF8AndBinaryAreReadOnly()
 suite.testWordHighlightRequiresSimilarContent()
 try suite.testRealRepositoryStreamsAndRootDeduplication()
-print("PASS: five core contracts, including real Git snapshots and file integrity")
+try suite.testGitMetadataIncludesAliasesAndRepositoryLayouts()
+suite.testMarkdownDiffPreservesProseAndChangedBlocks()
+print("PASS: seven core contracts, including Git metadata protection and Markdown block changes")
