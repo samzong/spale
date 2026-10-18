@@ -41,7 +41,7 @@
 
 - Tag only a `main` SHA whose main CI run succeeded. Fetch `origin/main` and tags with `git fetch origin main --tags`. Confirm the target belongs to `origin/main` and match the successful main push run to its exact SHA.
 - Before tagging, check whether the target SHA already has a tag or release. If so, complete only the remaining release steps. Never create a second version for the same SHA.
-- Pick the next free `vX.Y.Z`. Use a patch increment for `fix`. Below 1.0, use a minor increment for `feat` or a breaking change. Check existing tags and releases before choosing the version.
+- Inspect existing tags and releases. Release the next patch of the highest existing `vX.Y.Z`: keep X and Y, and increment Z. Never change X or Y for any change type. `samzong` changes them manually.
 - Push the tag with `git push origin vX.Y.Z` under the pre-ship gate's pure tag-push exception. If the gate blocks it, stop and report the missing capability. For an issue, label `agent:blocked` and comment with the reason. Never create a remote tag through `gh api` to bypass the gate.
 - Wait for the tag-triggered release run. If it fails, rerun its failed jobs once with `gh run rerun <run-id> --failed`. If still red, stop with `agent:blocked` and a marked reason comment. Completion requires `spale-vX.Y.Z-macos-arm64.zip`, a release marked Latest, and release output showing vtool SDK 26+ and minos 14.0, plus lipo `arm64`.
 - Only after the release asset exists, dispatch `samzong/homebrew-tap` workflow `scan-outdated.yml`. Follow the spale cask PR until it merges. If it does not merge within two hours, stop with `agent:blocked` and a reason comment on the issue. Confirm tap `main` `Casks/spale.rb` contains the release version and the asset SHA-256.
