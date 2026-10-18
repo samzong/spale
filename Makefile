@@ -49,7 +49,10 @@ app: build ## Package .local/dist/spale.app
 	cp Info.plist "$(APP)/Contents/Info.plist"
 	cp -R Resources/AppIcon.icns Resources/Fonts "$(APP)/Contents/Resources/"
 	cp .build/release/spale "$(APP)/Contents/MacOS/spale"
-	@identity="$$(security find-identity -v -p codesigning | awk -F '"' '/Apple Development: / { print $$2 }')"; \
+	@identity="$(SIGNING_IDENTITY)"; \
+	if [ -z "$$identity" ]; then \
+		identity="$$(security find-identity -v -p codesigning | awk -F '"' '/Apple Development: / { print $$2 }')"; \
+	fi; \
 	if [ -z "$$identity" ] || [ "$$(printf '%s\n' "$$identity" | wc -l | tr -d ' ')" != 1 ]; then \
 		echo 'Exactly one Apple Development identity is required.' >&2; exit 1; \
 	fi; \
