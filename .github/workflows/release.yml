@@ -3,6 +3,8 @@ name: Release
 on:
   pull_request:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
 
@@ -10,7 +12,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.ref }}-${{ startsWith(github.ref, 'refs/tags/') && 'publish' || github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -54,7 +56,9 @@ jobs:
           make app SIGNING_IDENTITY=-
           xcrun vtool -show-build .local/dist/spale.app/Contents/MacOS/spale
           codesign --verify --deep --strict .local/dist/spale.app
-          test "$(lipo -archs .local/dist/spale.app/Contents/MacOS/spale)" = arm64
+          archs="$(lipo -archs .local/dist/spale.app/Contents/MacOS/spale)"
+          echo "lipo: $archs"
+          test "$archs" = arm64
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' .local/dist/spale.app/Contents/Info.plist)" = "$PACKAGE_VERSION"
           ditto -c -k --sequesterRsrc --keepParent .local/dist/spale.app ".local/dist/spale-v${PACKAGE_VERSION}-macos-arm64.zip"
 
@@ -64,4 +68,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$RELEASE_TAG" ".local/dist/spale-${RELEASE_TAG}-macos-arm64.zip" \
-            --verify-tag --title "$RELEASE_TAG" --generate-notes
+            --verify-tag --title "$RELEASE_TAG" --generate-notes --latest
