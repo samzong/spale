@@ -12,6 +12,7 @@
 - Verify UI changes in the installed native app, including typing, undo, save, live refresh while another process writes files, window restoration, and both appearances; checks alone do not prove these. Remove the test windows and preferences that testing leaves in the installed app.
 - `make app` packages `.local/dist/spale.app` and signs it with the single Apple Development identity. `make install` quits spale (it refuses when documents stay open), replaces `/Applications/spale.app`, and links `spale` and `code` in `/opt/homebrew/bin`; it refuses to replace an app or link that belongs to another installation. Use it when installation is requested or needed to verify a UI change under Autonomy. `make uninstall` removes only spale's own app and links.
 - `Info.plist` is the single bundle manifest: `Package.swift` embeds it in the `spale` binary and `make app` copies it into the bundle. `Resources/logo.svg` is the icon source and draws the same shaving geometry as `ShavingView` in `Theme.swift`; change both together and run `make icon` to regenerate the committed `Resources/AppIcon.icns`.
+- After changes to `CFBundleDocumentTypes` or UTI declarations, install the app. Before querying handlers, make sure that `lsregister -dump` lists exactly one `us.samzong.spale` bundle to avoid selecting old builds. Query which application opens each declared type and its known subtypes.
 - Keep scratch files and distribution artifacts under `.local/`.
 
 ## Autonomy
