@@ -38,7 +38,7 @@ enum MarkdownRenderer {
                 let cell = NSTextTableBlock(table: table, startingRow: row, rowSpan: 1, startingColumn: column, columnSpan: 1)
                 cell.setContentWidth(100 / CGFloat(columns.count), type: .percentageValueType)
                 cell.setWidth(8, type: .absoluteValueType, for: .padding)
-                cell.verticalAlignment = .top
+                cell.verticalAlignment = .topAlignment
                 let value = render(cells[row]?[column] ?? AttributedString(" "), listed: &listed)
                 let styled = NSMutableAttributedString(attributedString: value)
                 styled.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: styled.length)) { value, range, _ in
