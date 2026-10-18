@@ -3,8 +3,6 @@ name: Release
 on:
   pull_request:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
 
@@ -12,7 +10,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}-${{ startsWith(github.ref, 'refs/tags/') && 'publish' || github.run_id }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
