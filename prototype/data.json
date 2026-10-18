@@ -1621,5 +1621,97 @@
     "plus": 13,
     "minus": 0,
     "untracked": true
-  }
+  },
+  "treeFiles": [
+    {
+      "path": "go.mod",
+      "full": "module ledger\n\ngo 1.23\n"
+    },
+    {
+      "path": ".gitignore",
+      "full": "build/\n"
+    },
+    {
+      "path": "internal/report/format.go",
+      "full": "package report\n\nfunc Title() string {\n    return \"Monthly report\"\n}\n"
+    },
+    {
+      "path": "README.md",
+      "full": "# Ledger\n\nA small account book.\n"
+    },
+    {
+      "path": "docs/format.md",
+      "full": "# Format\n\nKeep one payment on each row.\n"
+    },
+    {
+      "path": ".editorconfig",
+      "full": "root = true\n\n[*]\nindent_style = space\nindent_size = 2\n"
+    },
+    {
+      "path": ".env.example",
+      "full": "APP_NAME=Harbor\nAPP_ENV=example\n"
+    },
+    {
+      "path": ".github/CONTRIBUTING.md",
+      "full": "# Contributing\n\nKeep examples small and clear.\n"
+    },
+    {
+      "path": ".vscode/settings.json",
+      "full": "{\n  \"editor.tabSize\": 2\n}\n"
+    },
+    {
+      "path": "build/summary.txt",
+      "full": "Example output for the monthly report.\n"
+    }
+  ],
+  "folderFiles": [
+    {
+      "path": "Notes/Welcome.md",
+      "full": "# Harbor\n\nA quiet place for unfinished thoughts.\n\nKeep the useful parts. Leave room for the next idea.\n\nToday\n\n    Walk by the water.\n    Write a few lines.\n    Take the long way home.\n"
+    },
+    {
+      "path": "Notes/Ideas.txt",
+      "full": "A reading corner by the window.\nA notebook with room to spare.\n"
+    },
+    {
+      "path": "Drafts/Letter.txt",
+      "full": "Dear Morgan,\n\nThe harbor is quiet this morning.\n"
+    },
+    {
+      "path": "Read me.txt",
+      "full": "Open a folder. Pick a file. Start writing.\n"
+    },
+    {
+      "path": ".editorconfig",
+      "full": "root = true\n\n[*]\nindent_style = space\nindent_size = 2\n"
+    },
+    {
+      "path": ".env.example",
+      "full": "APP_NAME=Harbor\nAPP_ENV=example\n"
+    },
+    {
+      "path": ".github/CONTRIBUTING.md",
+      "full": "# Contributing\n\nKeep examples small and clear.\n"
+    },
+    {
+      "path": ".vscode/settings.json",
+      "full": "{\n  \"editor.tabSize\": 2\n}\n"
+    },
+    {
+      "path": "build/summary.txt",
+      "full": "Example output for the monthly report.\n"
+    },
+    {
+      "path": ".gitignore",
+      "full": "build/\n"
+    }
+  ],
+  "treeDirectories": [
+    "Exports",
+    "Archive/2025"
+  ],
+  "folderDirectories": [
+    "Exports",
+    "Archive/2025"
+  ]
 }

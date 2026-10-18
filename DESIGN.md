@@ -15,7 +15,7 @@ Platform and stack: macOS only, Swift and AppKit, no SwiftUI, zero configuration
 
 spale never performs a Git operation and never writes Git state. It has no history, log, blame, commit, stage, unstage, checkout, branch switching, stash, or remote features. It reads the working tree, the index, and `HEAD`, and nothing else. Every save checks the destination again, including Save As and symbolic links. Git metadata in ordinary repositories, bare repositories, and separate Git directories is protected. A rejected save preserves the document's path and unsaved edits. This protection does not repair earlier changes to Git metadata.
 
-The editor excludes project search, multiple cursors, completion, language servers, formatting, bracket pairing, plugins, tabs, split panes, a repository file tree, and a terminal.
+The editor excludes project search, multiple cursors, completion, language servers, formatting, bracket pairing, plugins, tabs, split panes, and a terminal.
 
 Moving this boundary requires proof of value and an explicit owner decision.
 
@@ -70,7 +70,23 @@ The branch is dimmed. A `●` follows the name while any file in the window has 
 
 The Staged group uses the `HEAD`→index status; the Unstaged group uses the index→worktree status. The heading of the group whose stream is showing is highlighted. ⌘B collapses the sidebar and the reader takes the full width.
 
-**Window bar.** A one-line bar at the bottom listing every open spale document window, from the left, in opening order. The current window is highlighted. Labels are `repo` or `repo › worktree` for repository windows and the file name for single-file windows, with `●` for unsaved edits. Clicking a label brings that window forward, including its display and Space. The bar never opens windows and updates live as windows open and close.
+**Window bar.** A one-line bar at the bottom listing every open spale document window, from the left, in opening order. The current window is highlighted. Labels are `repo` or `repo › worktree` for repository windows, the folder name for folder windows, and the file name for single-file windows, with `●` for unsaved edits. Clicking a label brings that window forward, including its display and Space. The bar never opens windows and updates live as windows open and close.
+
+### Folder windows and file trees
+
+A folder outside Git opens one window per real path. Its title and window bar label use the folder name. It has a `FILES` tree and an editable full-file reader. It has no streams, Git status, change marks, change navigation, or source toggle. Before a file opens, the reader says `Choose a file in the sidebar.`
+
+Repository windows keep `CHANGED FILES` above `FILES` in the same sidebar. Each region has its own scroll area and one background selection signal. The regions share the height equally. Collapsing the `FILES` heading gives its space to `CHANGED FILES`. This keeps both lists available without a new sidebar mode. A top switch is the alternative, but it hides one list and adds a mode.
+
+Clicking a file in `FILES` opens its full-file view. In a repository, Back or Esc returns to the current stream. In a folder window, the full-file reader stays open. The existing keyboard table does not change.
+
+The tree reflects only the file system. It shows ignored files and folders with the same style as other entries, without Git status letters or colors. Names that start with `.` use secondary text color; their children keep their own styles. An entry named `.git`, whether a file or folder, is hidden at every level. Folders sort before files. Each group sorts by name without case sensitivity, with dot-prefixed names in normal lexical order. Empty folders have no disclosure arrow and cannot expand. A folder containing only `.git` is empty for this purpose. Directory symbolic links do not expand. This avoids cycles and traversal outside the root. File symbolic links resolve before opening and saving, so saving preserves the link. Git metadata remains read-only. Git metadata directories, including bare repositories, cannot be folder roots.
+
+Directory listings and direct-child emptiness checks run on a background queue. Only the root and expanded directories refresh. Collapsed descendants are not scanned. Each directory shows at most 2,000 entries. An additional row says `Only the first 2,000 items are shown.` The subset follows directory enumeration order, then sorts for display. This bounds work in a large flat folder without building a recursive index. Revisit this limit if ordinary projects hit the message. A Git file index is the alternative, but it requires a separate path for ordinary folders and omits ignored content.
+
+FSEvents refreshes expanded directories and open buffers. Tree refreshes run one at a time and merge pending requests into one follow-up refresh. Events only inside Git metadata do not refresh the tree. An empty root shows `This folder is empty.` Expansion and collapse use 380 ms and the existing ease curve; Reduce Motion disables animation. Unavailable directories show `This folder is unavailable.` They keep a disclosure arrow instead of appearing empty. Window restoration uses AppKit state for the root, selected file, sidebar visibility, expanded directories, and collapsed `FILES` heading. No separate persistence layer is used.
+
+If a file cannot be read when opened, it starts unavailable and cannot be edited or saved. An empty file is available. When an open file becomes unavailable, the reader preserves its last content and unsaved edits. Editing, Undo, and Redo stay disabled until the file is available again. The undo history is preserved. The reader shows `File unavailable` in full-file views and for unsaved edits. A clean Deleted block in a change stream has no unavailable banner. `Use disk version` is unavailable until the file can be read again. For unsaved edits, `Keep my version` saves the preserved text.
 
 ### Single-file windows
 
@@ -123,10 +139,10 @@ Editing is NSTextView plus NSDocument behaviour; prefer what AppKit already prov
 
 ## Opening
 
-- `spale` opens the repository containing the current directory; `spale <path>` opens the repository containing `<path>`. The repository or worktree root is resolved and deduplicated by real path: an existing window comes forward, otherwise a new one opens. The command returns immediately.
-- `spale <file>` inside a repository opens that repository's window on the file's full-file view. An unchanged file is not listed in the sidebar until it has changes. A file outside any repository opens in a single-file window.
-- A path that does not exist, or a folder outside any Git repository, prints a one-line error and exits non-zero; nothing opens.
-- Finder "Open With" and dropping onto the Dock icon work as usual. There is no Open command and no recent list. A folder outside a repository shows a sheet: `"name" is not in a Git repository.`
+- `spale` opens the repository containing the current directory, or the current folder outside Git. `spale <path>` follows the same rule. The repository or worktree root is resolved and deduplicated by real path: an existing window comes forward, otherwise a new one opens. The command returns immediately.
+- `spale <file>` inside a repository opens that repository's window on the file's full-file view. An unchanged file appears in `FILES`, and appears in `CHANGED FILES` only when it has changes. A file outside any repository opens in a single-file window.
+- A path that does not exist prints a one-line error and exits non-zero. Nothing opens. A folder outside Git opens a folder window.
+- Finder "Open With" and dropping onto the Dock icon work as usual. There is no Open command and no recent list. Folders outside Git open folder windows.
 - The `spale` command needs no setup: the installer links it onto `PATH`, together with a `code` alias that behaves identically. There is no in-app "install command line tool" step.
 
 ## Launch
@@ -145,7 +161,7 @@ Any click or key press finishes the sequence immediately at its final frame; tha
 
 ### Every later launch
 
-Standard macOS window restoration reopens the previous repository and file windows, following the system setting "Close windows when quitting an application". When nothing is restored, or when the Dock icon is clicked with no windows open, spale shows the empty-state window. Closing the last window does not quit the app.
+Standard macOS window restoration reopens the previous repository, folder, and file windows, following the system setting "Close windows when quitting an application". When nothing is restored, or when the Dock icon is clicked with no windows open, spale shows the empty-state window. Closing the last window does not quit the app.
 
 ### Empty state
 

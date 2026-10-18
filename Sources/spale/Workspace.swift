@@ -9,6 +9,8 @@ final class WorkspaceWindow: NSWindow {
         coder.encode(workspace.fullPath, forKey: "spaleFullPath")
         coder.encode(workspace.stream.rawValue, forKey: "spaleStream")
         coder.encode(workspace.sidebarVisible, forKey: "spaleSidebar")
+        coder.encode(workspace.fileTree?.expandedPaths, forKey: "spaleTreeExpanded")
+        coder.encode(workspace.fileTree?.collapsed ?? false, forKey: "spaleTreeCollapsed")
     }
     override func restoreState(with coder: NSCoder) {
         super.restoreState(with: coder)
@@ -18,6 +20,9 @@ final class WorkspaceWindow: NSWindow {
             workspace.stream = SpaleCore.Stream(rawValue: stream) ?? .unstaged
         }
         workspace.sidebarVisible = coder.decodeBool(forKey: "spaleSidebar")
+        if let paths = coder.decodeObject(of: [NSArray.self, NSString.self], forKey: "spaleTreeExpanded") as? [String] {
+            workspace.fileTree?.restore(expanded: paths, collapsed: coder.decodeBool(forKey: "spaleTreeCollapsed"))
+        }
         workspace.recompute(); workspace.layout()
     }
 }
@@ -35,6 +40,8 @@ final class WorkspaceRestoration: NSObject, NSWindowRestoration {
 
 final class Workspace: NSWindowController, NSWindowDelegate {
     let root: URL?
+    let isRepository: Bool
+    var fileTree: FileTree?
     var standalone: FileBuffer?
     var snapshot: RepositorySnapshot?
     var externalCues: [String: (Date, Set<Int>)] = [:]
@@ -67,13 +74,14 @@ final class Workspace: NSWindowController, NSWindowDelegate {
     var afterLayout: (() -> Void)?
     var shown = false
     var pendingCaret: (String, Int)?
-    var displayName: String { snapshot?.name ?? standalone?.fileURL?.lastPathComponent ?? "Untitled" }
+    var displayName: String { snapshot?.name ?? root?.lastPathComponent ?? standalone?.fileURL?.lastPathComponent ?? "Untitled" }
     var edited: Bool { allBuffers.contains { $0.isDocumentEdited } }
     var allBuffers: [FileBuffer] { standalone.map { [$0] } ?? Array(buffers.values) }
     var stateKey: String { fullPath.map { "full:\($0)" } ?? stream.rawValue }
 
-    init(root: URL?, file: URL? = nil, data: Data? = nil) {
+    init(root: URL?, file: URL? = nil, data: Data? = nil, isRepository: Bool = true) {
         self.root = root
+        self.isRepository = root != nil && isRepository
         let window = WorkspaceWindow(contentRect: NSRect(x: 0, y: 0, width: 1180, height: 780), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.minSize = NSSize(width: 640, height: 420)
         window.titleVisibility = .hidden; window.titlebarAppearsTransparent = true
@@ -102,17 +110,21 @@ final class Workspace: NSWindowController, NSWindowDelegate {
             else { self.openFull(self.selectedPath ?? self.visibleSections.first?.path) }
         }
         if let root {
+            let tree = FileTree(root: root)
+            fileTree = tree; sidebar.addSubview(tree)
+            tree.onOpen = { [weak self] in self?.openFull($0) }
+            tree.onCollapse = { [weak self] in self?.layout(animated: true) }
             if let file, file.path.hasPrefix(root.path + "/") {
                 let path = String(file.path.dropFirst(root.path.count + 1)); fullPath = path; selectedPath = path
             }
             refresh()
         } else {
-            let initial = data ?? file.flatMap { try? Data(contentsOf: $0) } ?? Data()
+            let initial = data ?? (file == nil ? Data() : file.flatMap { try? Data(contentsOf: $0) })
             standalone = FileBuffer(url: file, data: initial)
             standalone?.didChange = { [weak self] in self?.renderStandalone() }
-            if let file { watcher = Watcher(paths: [file.deletingLastPathComponent().path]) { [weak self] in
+            if let file { watcher = Watcher(paths: [file.deletingLastPathComponent().path]) { [weak self] _ in
                 guard let self, let buffer = self.standalone, let url = buffer.fileURL else { return }
-                if buffer.receive((try? Data(contentsOf: url)) ?? Data()) { self.renderStandalone() }
+                if buffer.receive(try? Data(contentsOf: url)) { self.renderStandalone() }
             } }
             renderStandalone()
         }
@@ -145,11 +157,21 @@ final class Workspace: NSWindowController, NSWindowDelegate {
         return false
     }
 
-    func refresh() {
+    func watcherChanged(_ paths: [String]) {
+        let metadata = [snapshot?.gitDirectory.path, snapshot?.commonDirectory.path].compactMap { $0 }
+        let treeChanged = paths.isEmpty || paths.contains { path in
+            !path.split(separator: "/").contains(where: { $0.lowercased() == ".git" }) && !metadata.contains(where: { path == $0 || path.hasPrefix($0 + "/") })
+        }
+        refresh(tree: treeChanged)
+    }
+
+    func refresh(tree: Bool = true) {
         guard let root else { return }
+        if tree { fileTree?.refresh() }
+        if !isRepository { refreshFolder(); return }
         if busy { refreshAgain = true; return }
         busy = true
-        let extra = Set(buffers.keys).union(fullPath.map { [$0] } ?? [])
+        let extra = Set(buffers.filter { $0.value.isDocumentEdited }.keys).union(fullPath.map { [$0] } ?? [])
         let priorFiles = snapshot?.files
         let observedAt = ProcessInfo.processInfo.systemUptime
         worker.async { [weak self] in
@@ -177,13 +199,14 @@ final class Workspace: NSWindowController, NSWindowDelegate {
                 case .success(let result):
                     let (snapshot, counts, cues) = result
                     if self.buffers.values.contains(where: { $0.lastSavedAt > observedAt }) {
-                        self.refreshAgain = false; self.refresh(); return
+                        self.refreshAgain = false; self.refresh(tree: false); return
                     }
 
                     self.sidebarCounts = counts
                     var changed = Set<String>()
-                    for (path, data) in snapshot.files {
+                    for path in Set(snapshot.changes.map(\.path)).union(extra) {
                         if let buffer = self.buffers[path] {
+                            let data = snapshot.files[path]
                             if buffer.receive(data, observedAt: observedAt) {
                                 changed.insert(path)
                                 if let lines = cues[path], !buffer.conflict { self.externalCues[path] = (Date(), lines) }
@@ -192,21 +215,21 @@ final class Workspace: NSWindowController, NSWindowDelegate {
                     }
                     self.snapshot = snapshot
                     if self.watcher == nil {
-                        self.watcher = Watcher(paths: Array(Set([root.path, snapshot.gitDirectory.path, snapshot.commonDirectory.path]))) { [weak self] in self?.refresh() }
+                        self.watcher = Watcher(paths: Array(Set([root.path, snapshot.gitDirectory.path, snapshot.commonDirectory.path]))) { [weak self] paths in self?.watcherChanged(paths) }
                     }
                     for path in changed { self.sections.values.filter { $0.path == path }.forEach { $0.collapsed = false } }
                     self.recompute()
                 case .failure(let error):
                     self.showMessage(error.localizedDescription)
                 }
-                if self.refreshAgain { self.refreshAgain = false; self.refresh() }
+                if self.refreshAgain { self.refreshAgain = false; self.refresh(tree: false) }
             }
         }
     }
 
     func buffer(for path: String) -> FileBuffer {
         if let buffer = buffers[path] { return buffer }
-        let buffer = FileBuffer(url: root?.appendingPathComponent(path), data: snapshot?.files[path] ?? Data())
+        let buffer = FileBuffer(url: root?.appendingPathComponent(path), data: snapshot?.files[path] ?? root.flatMap { try? Data(contentsOf: $0.appendingPathComponent(path)) })
         buffer.path = path
         bind(buffer)
         buffers[path] = buffer
@@ -221,7 +244,45 @@ final class Workspace: NSWindowController, NSWindowDelegate {
         }
     }
 
+    func refreshFolder() {
+        guard let root else { return }
+        if watcher == nil { watcher = Watcher(paths: [root.path]) { [weak self] paths in self?.watcherChanged(paths) } }
+        if busy { refreshAgain = true; return }
+        busy = true
+        let paths = Set(buffers.keys).union(fullPath.map { [$0] } ?? [])
+        let observedAt = ProcessInfo.processInfo.systemUptime
+        worker.async { [weak self] in
+            let data = Dictionary(uniqueKeysWithValues: paths.map { ($0, try? Data(contentsOf: root.appendingPathComponent($0))) })
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.busy = false
+                for (path, value) in data { _ = self.buffers[path]?.receive(value, observedAt: observedAt) }
+                self.recompute()
+                if self.refreshAgain { self.refreshAgain = false; self.refresh(tree: false) }
+            }
+        }
+    }
+
+    func renderFolder() {
+        generation += 1
+        guard let path = fullPath else {
+            visibleSections.forEach { $0.removeFromSuperview() }; visibleSections = []
+            showMessage("Choose a file in the sidebar."); updateTitle(); layout(); return
+        }
+        let buffer = buffer(for: path)
+        let section = sections["full:" + path] ?? FileSection(key: "full:" + path, path: path, buffer: buffer)
+        sections["full:" + path] = section
+        visibleSections.filter { $0 !== section }.forEach { $0.removeFromSuperview() }
+        readerContent.subviews.filter { !($0 is FileSection) }.forEach { $0.removeFromSuperview() }
+        section.configure(rows: LineDiff.rows(before: buffer.content.text, after: buffer.text), status: " ", title: path, full: true, readOnly: false, changesVisible: false)
+        section.onCollapse = { [weak self] in self?.layout() }
+        if section.superview == nil { readerContent.addSubview(section) }
+        visibleSections = [section]
+        fileTree?.select(path); updateTitle(); layout(); AppDelegate.shared?.updateWindowBars()
+    }
+
     func recompute() {
+        if root != nil && !isRepository { renderFolder(); return }
         guard let snapshot else { return }
         generation += 1
         let token = generation, currentStream = stream, currentFull = fullPath
@@ -231,12 +292,12 @@ final class Workspace: NSWindowController, NSWindowDelegate {
                 changes.append(Change(path: path, status: "M", stream: .unstaged))
             }
         }
-        if let path = currentFull { changes = [snapshot.changes.first { $0.path == path } ?? Change(path: path, status: "M", stream: .unstaged)] }
+        if let path = currentFull { changes = [snapshot.changes.first { $0.path == path && $0.stream == currentStream } ?? snapshot.changes.first { $0.path == path } ?? Change(path: path, status: " ", stream: .unstaged)] }
         changes.sort { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
         let entries = changes.map { change -> (Change, String, String, Bool) in
             let buffer = buffer(for: change.path)
             let before = TextContent((currentFull != nil || currentStream == .staged ? snapshot.head : snapshot.index)[change.path] ?? Data()).text
-            let after = currentFull != nil || currentStream == .unstaged ? buffer.text : TextContent(snapshot.index[change.path] ?? Data()).text
+            let after = currentFull != nil || currentStream == .unstaged ? (buffer.unavailable && !buffer.isDocumentEdited && currentFull == nil ? "" : buffer.text) : TextContent(snapshot.index[change.path] ?? Data()).text
             return (change, before, after, buffer.isDocumentEdited)
         }
         updateTitle(); buildSidebar()
@@ -313,6 +374,7 @@ final class Workspace: NSWindowController, NSWindowDelegate {
 
     func buildSidebar() {
         sidebarContent.subviews.forEach { $0.removeFromSuperview() }
+        fileTree?.select(fullPath)
         guard let snapshot else { return }
         let unique = Set(snapshot.changes.map(\.path)).count
         let heading = label("CHANGED FILES", color: Theme.muted)
@@ -390,19 +452,25 @@ final class Workspace: NSWindowController, NSWindowDelegate {
         previous.frame = NSRect(x: size.width - 112, y: 16, width: 28, height: 28)
         next.frame = NSRect(x: size.width - 80, y: 16, width: 28, height: 28)
         fullButton.frame = NSRect(x: size.width - 48, y: 16, width: 28, height: 28)
-        previous.isHidden = root == nil; next.isHidden = root == nil; fullButton.isHidden = root == nil
+        previous.isHidden = !isRepository; next.isHidden = !isRepository; fullButton.isHidden = !isRepository
         let sourceAction = fullPath == nil ? "Show source" : "Show changes"
         fullButton.toolTip = sourceAction
         fullButton.setAccessibilityLabel(sourceAction)
         fullButton.image = NSImage(systemSymbolName: fullPath == nil ? "chevron.left.forwardslash.chevron.right" : "text.alignleft", accessibilityDescription: sourceAction)?.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .medium))
         let sidebarFrame = NSRect(x: 0, y: 60, width: side, height: max(0, size.height - 92))
         let readerFrame = NSRect(x: side, y: 60, width: max(0, size.width - side), height: max(0, size.height - 92))
-        sidebarScroll.frame = NSRect(x: 0, y: 0, width: 319, height: sidebarFrame.height)
+        let treeHeight = isRepository ? (fileTree?.collapsed == true ? 40 : max(40, sidebarFrame.height * 0.5)) : sidebarFrame.height
+        let changedHeight = max(0, sidebarFrame.height - treeHeight)
+        sidebarScroll.isHidden = !isRepository
+        let changedFrame = NSRect(x: 0, y: 0, width: 319, height: changedHeight)
+        fileTree?.topBorder = isRepository
+        let treeFrame = NSRect(x: 0, y: changedHeight, width: 319, height: treeHeight)
         if animated && !Theme.reducedMotion {
             sidebar.isHidden = false
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.38; context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 0.8, 0.2, 1)
                 sidebar.animator().frame = sidebarFrame; reader.animator().frame = readerFrame
+                sidebarScroll.animator().frame = changedFrame; fileTree?.animator().frame = treeFrame
             } completionHandler: { [weak self] in guard let self else { return }; self.sidebar.isHidden = !self.sidebarVisible }
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.18; context.timingFunction = CAMediaTimingFunction(name: .linear)
@@ -410,6 +478,7 @@ final class Workspace: NSWindowController, NSWindowDelegate {
             }
         } else {
             sidebar.frame = sidebarFrame; reader.frame = readerFrame
+            sidebarScroll.frame = changedFrame; fileTree?.frame = treeFrame
             sidebar.isHidden = side == 0; sidebar.alphaValue = 1
         }
         windowBar.frame = NSRect(x: 0, y: size.height - 32, width: size.width, height: 32)
@@ -466,12 +535,20 @@ final class Workspace: NSWindowController, NSWindowDelegate {
         recompute()
     }
     func openFull(_ path: String?) {
-        guard let path else { return }
+        guard var path, let root else { return }
+        let url = root.appendingPathComponent(path).resolvingSymlinksInPath()
+        var directory: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &directory)
+        guard exists || buffers[path] != nil, !directory.boolValue, !Git.isMetadata(url) else { return }
+        guard url.path.hasPrefix(root.path + "/") else { AppDelegate.shared?.open(url); return }
+        path = String(url.path.dropFirst(root.path.count + 1))
         scrollPositions[stateKey] = reader.contentView.bounds.origin
-        fullPath = path; selectedPath = path; recompute()
+        fullPath = path; selectedPath = path
+        window?.invalidateRestorableState()
+        if isRepository { refresh() } else { recompute() }
     }
     func returnToStream() {
-        guard fullPath != nil else { return }
+        guard isRepository, fullPath != nil else { return }
         fullPath = nil
         afterLayout = { [weak self] in guard let self else { return }; self.reader.contentView.scroll(to: self.scrollPositions[self.stateKey] ?? .zero); self.reader.reflectScrolledClipView(self.reader.contentView) }
         recompute()
@@ -522,6 +599,34 @@ final class Workspace: NSWindowController, NSWindowDelegate {
         guard let buffer = standalone ?? visibleSections.first(where: { window?.firstResponder === $0.code })?.buffer, buffer.isDocumentEdited || buffer.fileURL == nil else { return }
         buffer.saveNow { _ in self.refresh() }
     }
-    @objc func saveDocumentAs(_ sender: Any?) { guard stream != .staged || fullPath != nil || root == nil else { return }; (standalone ?? selectedPath.map { buffer(for: $0) })?.saveAsNow { _ in self.refresh() } }
-    @objc func toggleSidebar(_ sender: Any?) { guard root != nil else { return }; sidebarVisible.toggle(); layout(animated: true) }
+    @objc func saveDocumentAs(_ sender: Any?) {
+        guard stream != .staged || fullPath != nil || root == nil,
+              let buffer = standalone ?? selectedPath.map({ buffer(for: $0) }) else { return }
+        let previous = buffer.fileURL
+        buffer.saveAsNow { [weak self, buffer] success in
+            guard let self, success, let url = buffer.fileURL else { return }
+            guard previous != url else { self.refresh(); return }
+            if self.root != nil {
+                let oldPaths = self.buffers.filter { $0.value === buffer }.map(\.key)
+                self.buffers = self.buffers.filter { $0.value !== buffer }
+                for section in self.sections.values where section.buffer === buffer { section.removeFromSuperview() }
+                self.sections = self.sections.filter { $0.value.buffer !== buffer }
+                self.visibleSections.removeAll { $0.buffer === buffer }
+                if let path = self.fullPath, oldPaths.contains(path) { self.fullPath = nil }
+                if let path = self.selectedPath, oldPaths.contains(path) { self.selectedPath = nil }
+                NSDocumentController.shared.removeDocument(buffer)
+                self.refresh()
+                AppDelegate.shared?.open(url)
+            } else {
+                self.watcher = Watcher(paths: [url.deletingLastPathComponent().path]) { [weak self, weak buffer] _ in
+                    guard let self, let buffer, let url = buffer.fileURL else { return }
+                    if buffer.receive(try? Data(contentsOf: url)) { self.renderStandalone() }
+                }
+                self.window?.identifier = NSUserInterfaceItemIdentifier(url.path)
+                self.window?.invalidateRestorableState()
+                self.renderStandalone(); AppDelegate.shared?.updateWindowBars()
+            }
+        }
+    }
+    @objc func toggleSidebar(_ sender: Any?) { guard root != nil else { return }; sidebarVisible.toggle(); window?.invalidateRestorableState(); layout(animated: true) }
 }

@@ -327,7 +327,7 @@ function sidebar() {
   const changed = new Set();
   $('#files').innerHTML = ['Staged', 'Unstaged'].map(group => {
     const included = files.map((file, index) => ({ file, index, status: groupStatus(file, group) })).filter(item => item.status);
-    return `<button class="group-heading ${flow === group ? 'active' : ''}" data-group="${group}" aria-current="${flow === group}">${group}</button>` + included.map(({ file, index, status }) => {
+    return `<button class="group-heading ${!activeWindow.treeSelected && mode === 'stream' && flow === group ? 'active' : ''}" data-group="${group}" aria-current="${!activeWindow.treeSelected && mode === 'stream' && flow === group}">${group}</button>` + included.map(({ file, index, status }) => {
       changed.add(index);
       const name = file.path.split('/').pop();
       const directory = file.path.slice(0, Math.max(0, file.path.lastIndexOf('/')));
@@ -337,7 +337,7 @@ function sidebar() {
       const changes = diffRows(group === 'Staged' ? file.head : file.index, group === 'Staged' ? file.index : file.full);
       const plus = changes.filter(line => line.type === '+').length;
       const minus = changes.filter(line => line.type === '-').length;
-      return `<button class="file-row ${index === current && flow === group ? 'active' : ''}" data-file="${index}" data-group="${group}" data-status="${status}" title="${esc(file.path)}">
+      return `<button class="file-row ${!activeWindow.treeSelected && mode === 'full' && index === current && flow === group ? 'active' : ''}" data-file="${index}" data-group="${group}" data-status="${status}" title="${esc(file.path)}">
         <span class="file-status">${status}</span><span class="file-label">${label}</span>
         <span class="counts"><span class="plus">${plus ? '+' + plus : ''}</span><span class="minus">${minus ? '−' + minus : ''}</span></span></button>`;
     }).join('');
@@ -346,6 +346,7 @@ function sidebar() {
   $('#files').hidden = clean;
   $('#files').querySelectorAll('button').forEach(button => button.onclick = () => switchFlow(button.dataset.group,
     button.dataset.file === undefined ? null : +button.dataset.file));
+  renderTree();
 }
 
 function fileHeader(file) {
@@ -540,7 +541,7 @@ function readingAnchor(index) {
 }
 
 function openFile(index = current) {
-  if (clean) return;
+  if (clean && !activeWindow.treeSelected) return;
   clearSelection();
   const fading = mode === 'stream' ? beginViewFade() : null;
   const anchor = readingAnchor(index);
@@ -564,13 +565,13 @@ function openFile(index = current) {
   }
   const contents = file.full.split('\n').map((text, i) => {
     const number = i + 1;
-    const line = !activeWindow.single && additions.get(number) || { text, type: ' ', new: number };
+    const line = !clean && !activeWindow.single && !activeWindow.folder && additions.get(number) || { text, type: ' ', new: number };
     const start = line.type === '+' && !additions.has(number - 1) && !deletions.has(number);
     const rendered = row(line, undefined, true).replace('<div ', `<div ${start ? 'data-change-block ' : ''}`);
-    return (!activeWindow.single && deletions.has(number) ? deletionMarker(number) : '') + rendered;
+    return (!clean && !activeWindow.single && !activeWindow.folder && deletions.has(number) ? deletionMarker(number) : '') + rendered;
   }).join('');
   $('#fullfile').style.setProperty('--digits', String(file.full.split('\n').length).length);
-  $('#fullfile').innerHTML = `${activeWindow.single ? '' : fileHeader(streamFile(file))}
+  $('#fullfile').innerHTML = `${activeWindow.single ? '' : fileHeader(activeWindow.folder || clean ? { ...file, status: '', plus: 0, minus: 0 } : streamFile(file))}
     ${conflict(file)}<div class="code-block" contenteditable="true" spellcheck="false" autocapitalize="off" autocorrect="off">${contents}</div>`;
   $('#stream').hidden = true;
   $('#empty').hidden = true;
@@ -587,7 +588,8 @@ function openFile(index = current) {
 }
 
 function back() {
-  if (mode !== 'full') return;
+  if (mode !== 'full' || activeWindow.folder) return;
+  activeWindow.treeSelected = false;
   clearSelection();
   const fading = beginViewFade();
   stopScroll();
@@ -648,7 +650,7 @@ function cueRows(scope, rows) {
 }
 
 function update() {
-  if (activeWindow.single) return;
+  if (activeWindow.single || activeWindow.folder) return;
   stopScroll();
   const file = files.find(file => file.path === activeWindow.agentData?.updated.path) || files[0];
   activeWindow.updates = (activeWindow.updates || 0) + 1;
@@ -718,7 +720,7 @@ fetch('data.json').then(response => {
   return response.json();
 }).then(result => {
   data = result;
-  windows = [makeDemoWindow(), makeWindow('combe', 'combe', 'main', [sample('src/main.rs', 'fn main() {\n    println!("combe");\n}\n', 'fn main() {\n    println!("hello");\n}\n')]), makeWindow('spale', 'prototype-editing', 'feat/prototype-editing', [sample('prototype.txt', 'spale\nRead and edit working changes.\n', 'spale\nRead working changes.\n')]), makeWindow('notes.txt', '', '', [sample('notes.txt', 'A small place to write.\n')], true)];
+  windows = [makeDemoWindow(), makeFolderWindow(), makeWindow('combe', 'combe', 'main', [sample('src/main.rs', 'fn main() {\n    println!("combe");\n}\n', 'fn main() {\n    println!("hello");\n}\n')]), makeWindow('spale', 'prototype-editing', 'feat/prototype-editing', [sample('prototype.txt', 'spale\nRead and edit working changes.\n', 'spale\nRead working changes.\n')]), makeWindow('notes.txt', '', '', [sample('notes.txt', 'A small place to write.\n')], true)];
   activateWindow(windows[0].id);
   document.documentElement.dataset.ready = 'true';
 }).catch(error => {
@@ -810,6 +812,19 @@ function makeWindow(repo, worktree, branch, source, single = false) {
 function makeDemoWindow(worktree = data.repo, branch = 'main') {
   const win = makeWindow(data.repo, worktree, branch, data.files);
   win.agentData = { updated: data.updated, live: data.live, initial: data.files.find(file => file.path === data.updated.path).full };
+  win.directories = data.treeDirectories;
+  for (const item of data.treeFiles) {
+    if (!win.files.some(file => file.path === item.path)) win.files.push(initialize(sample(item.path, item.full, item.full)));
+  }
+  return win;
+}
+
+function makeFolderWindow() {
+  const win = makeWindow('Harbor', 'Harbor', '', data.folderFiles.map(item => sample(item.path, item.full, item.full)));
+  win.folder = true;
+  win.directories = data.folderDirectories;
+  win.treeSelected = true;
+  win.flows.Unstaged.mode = 'full';
   return win;
 }
 
@@ -828,15 +843,20 @@ function makeFlow(single) {
 
 function titleBar() {
   const win = activeWindow;
-  $('#workspace').innerHTML = `<span>${esc(win.single ? win.files[0].path : win.repo + (win.worktree !== win.repo ? ' › ' + win.worktree : ''))}${win.files.some(dirty) ? '<span class="unsaved" aria-label="Unsaved changes">●</span>' : ''}</span>${win.single ? '' : `<span class="branch">${esc(win.branch)}</span>`}`;
+  $('#workspace').innerHTML = `<span>${esc(win.single ? win.files[0].path : win.repo + (win.worktree !== win.repo ? ' › ' + win.worktree : ''))}${win.files.some(dirty) ? '<span class="unsaved" aria-label="Unsaved changes">●</span>' : ''}</span>${win.single || win.folder ? '' : `<span class="branch">${esc(win.branch)}</span>`}`;
   document.title = 'spale · ' + windowLabel(win);
+  reader.setAttribute('aria-label', win.folder ? 'Full file' : 'Continuous changes');
   $('.window').classList.toggle('sidebar-collapsed', win.collapsed || win.single);
   $('.window').classList.toggle('single-file', win.single);
-  $('#back').hidden = mode !== 'full' || win.single;
-  $('#full').hidden = mode === 'full' || clean || win.single || !$('#stream').children.length;
-  $('#simulate').disabled = win.single;
-  $('#stage').disabled = win.single;
-  $('#clean').disabled = win.single;
+  $('#back').hidden = mode !== 'full' || win.single || win.folder;
+  $('#full').hidden = mode === 'full' || clean || win.single || win.folder || !$('#stream').children.length;
+  $('#prev').hidden = $('#next').hidden = !!win.folder || win.single;
+  $('#simulate').disabled = win.single || win.folder;
+  $('#stage').disabled = win.single || win.folder;
+  $('#clean').disabled = win.single || win.folder;
+  $('#context-choice').textContent = win.folder ? 'Plain folder' : 'Git repository';
+  $('.window').classList.toggle('folder-window', !!win.folder);
+  updateSidebarLayout();
 }
 
 function storeFlow() {
@@ -865,6 +885,8 @@ function restoreFlow() {
 }
 
 function switchFlow(group, index = null) {
+  if (activeWindow.folder) return;
+  activeWindow.treeSelected = false;
   const full = mode === 'full';
   if (group !== flow) {
     storeFlow();
@@ -1162,7 +1184,7 @@ $('#close-window').onclick = () => {
 };
 
 $('#stage').onclick = () => {
-  if (activeWindow.single) return;
+  if (activeWindow.single || activeWindow.folder) return;
   const file = files[current];
   file.index = file.disk;
   file.indexExists = file.workExists || !!file.disk;
@@ -1172,4 +1194,83 @@ $('#stage').onclick = () => {
   clearSelection();
   recompute(file);
   refresh();
+};
+
+function updateSidebarLayout() {
+  $('#changes-panel').hidden = !!activeWindow?.folder;
+  $('#tree-panel').hidden = !!activeWindow?.single;
+  const expanded = $('#tree-heading').getAttribute('aria-expanded') === 'true';
+  $('#tree-body').classList.toggle('collapsed', !expanded);
+  $('#tree-body').inert = !expanded;
+}
+
+function renderTree() {
+  activeWindow.expandedFolders ??= new Set(['.github', '.vscode', 'Archive', 'build']);
+  const root = { children: new Map() };
+  const add = (path, index) => {
+    if (path.split('/').some(name => name.toLowerCase() === '.git')) return;
+    let parent = root;
+    path.split('/').forEach((name, depth, parts) => {
+      if (!parent.children.has(name)) parent.children.set(name, { name, path: parts.slice(0, depth + 1).join('/'), children: new Map() });
+      parent = parent.children.get(name);
+      if (index !== undefined && depth === parts.length - 1) parent.index = index;
+    });
+  };
+  (activeWindow.directories || []).forEach(path => add(path));
+  files.forEach((file, index) => {
+    if (file.workExists) add(file.path, index);
+  });
+  const children = (parent, depth = 0) => [...parent.children.values()]
+    .sort((a, b) => {
+      const folders = Number(b.index === undefined) - Number(a.index === undefined);
+      const left = a.name.toLowerCase();
+      const right = b.name.toLowerCase();
+      return folders || (left < right ? -1 : left > right ? 1 : 0);
+    })
+    .map(node => {
+      const folder = node.index === undefined;
+      const expandable = folder && node.children.size > 0;
+      const expanded = expandable && activeWindow.expandedFolders.has(node.path);
+      const hidden = node.name.startsWith('.');
+      const file = files[node.index];
+      const attributes = folder
+        ? expandable ? `data-folder="${esc(node.path)}" aria-expanded="${expanded}"` : 'aria-disabled="true"'
+        : `data-tree-file="${node.index}"`;
+      return `<div class="tree-node"><button class="tree-row ${hidden ? 'hidden-item' : ''} ${!folder && activeWindow.treeSelected && current === node.index ? 'active' : ''}" style="--depth:${depth}" ${attributes} title="${esc(node.path)}">
+        <span class="tree-chevron ${expanded ? 'open' : ''}">${expandable ? '›' : ''}</span>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="${folder ? 'M2 4h5l1.5 2H14v7H2z' : 'M4 2h5l3 3v9H4z M9 2v4h3'}"/></svg>
+        <span class="tree-name">${esc(node.name)}</span>${file ? dirtyMark(file) : ''}</button>
+        ${expandable ? `<div class="tree-children ${expanded ? 'open' : ''}"><div>${children(node, depth + 1)}</div></div>` : ''}</div>`;
+    }).join('');
+  $('#tree').innerHTML = children(root);
+  $('#tree').querySelectorAll('[data-folder]').forEach(button => button.onclick = () => {
+    const path = button.dataset.folder;
+    const expanded = !activeWindow.expandedFolders.has(path);
+    if (expanded) activeWindow.expandedFolders.add(path);
+    else activeWindow.expandedFolders.delete(path);
+    button.setAttribute('aria-expanded', String(expanded));
+    button.querySelector('.tree-chevron').classList.toggle('open', expanded);
+    const body = button.nextElementSibling;
+    body.inert = !expanded;
+    body.classList.toggle('open', expanded);
+  });
+  $('#tree').querySelectorAll('.tree-children:not(.open)').forEach(body => { body.inert = true; });
+  $('#tree').querySelectorAll('[data-tree-file]').forEach(button => button.onclick = () => {
+    activeWindow.treeSelected = true;
+    clearSelection();
+    openFile(+button.dataset.treeFile);
+  });
+  updateSidebarLayout();
+}
+
+$('#context-choice').onclick = () => {
+  const target = windows.find(win => activeWindow.folder ? !win.folder && !win.single : win.folder);
+  if (target) activateWindow(target.id);
+};
+$('#tree-heading').onclick = () => {
+  const expanded = $('#tree-heading').getAttribute('aria-expanded') !== 'true';
+  $('#tree-heading').setAttribute('aria-expanded', String(expanded));
+  $('#tree-body').classList.toggle('collapsed', !expanded);
+  $('#tree-body').inert = !expanded;
+  document.querySelector('aside').classList.toggle('tree-closed', !expanded);
 };
