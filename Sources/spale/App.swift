@@ -124,6 +124,20 @@ final class EmptyView: Surface {
 
 final class DocumentController: NSDocumentController {
     override func noteNewRecentDocumentURL(_ url: URL) {}
+    override func openDocument(withContentsOf url: URL, display displayDocument: Bool, completionHandler: @escaping (NSDocument?, Bool, Error?) -> Void) {
+        let file = url.standardizedFileURL.resolvingSymlinksInPath()
+        let existing = document(for: file)
+        guard let workspace = AppDelegate.shared?.open(file) else {
+            completionHandler(nil, false, nil); return
+        }
+        if (try? file.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+            completionHandler(nil, false, nil); return
+        }
+        let buffer = workspace.standalone ?? workspace.root.flatMap { root in
+            file.path.hasPrefix(root.path + "/") ? workspace.buffer(for: String(file.path.dropFirst(root.path.count + 1))) : nil
+        }
+        completionHandler(buffer, existing != nil, nil)
+    }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
@@ -175,18 +189,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if i == workspaces.count { completion(true); return }
         workspaces[i].saveAll { [weak self] success in if success { self?.saveWorkspaces(i + 1, completion: completion) } else { completion(false) } }
     }
-    func open(_ input: URL) {
+    @discardableResult
+    func open(_ input: URL) -> Workspace? {
         let target: OpenTarget
         do { target = try OpenTarget.resolve(input) }
-        catch { showError((error as? CocoaError)?.code == .fileNoSuchFile ? "The path does not exist." : "This folder cannot be opened."); return }
+        catch { showError((error as? CocoaError)?.code == .fileNoSuchFile ? "The path does not exist." : "This folder cannot be opened."); return nil }
         if let existing = workspaces.first(where: { target.root != nil ? $0.root == target.root : $0.standalone?.fileURL == target.file }) {
             if let root = target.root, let file = target.file { existing.openFull(String(file.path.dropFirst(root.path.count + 1))) }
-            existing.show(); return
+            existing.show()
+            return existing
         }
         let workspace = Workspace(root: target.root, file: target.file, isRepository: target.isRepository)
-        workspaces.append(workspace); emptyWindow?.close(); emptyWindow = nil; emptyView = nil
+        workspaces.append(workspace)
+        emptyWindow?.close(); emptyWindow = nil; emptyView = nil
         workspace.show()
         persist()
+        return workspace
     }
     func remove(_ workspace: Workspace) { workspaces.removeAll { $0 === workspace }; updateWindowBars(); persist() }
     func updateWindowBars() { workspaces.forEach { $0.updateTitle(); $0.updateWindowBar(workspaces) } }
