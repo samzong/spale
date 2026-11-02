@@ -268,6 +268,47 @@ final class CoreTests {
         precondition(limited.entries.count == 3 && limited.truncated)
     }
 
+    func testIconThemeFollowsFileIconThemeMatching() throws {
+        let json = """
+        {"iconDefinitions": {"document": {"iconPath": "./icons/files/document.svg"}, "folder": {"iconPath": "./icons/folders/folder.svg"}, "folder-docs": {"iconPath": "./icons/folders/folder-docs.svg"}, "link": {"iconPath": "./icons/files/link.svg"}, "markdown": {"iconPath": "./icons/files/markdown.svg"}, "readme": {"iconPath": "./icons/files/readme.svg"}, "archive": {"iconPath": "./icons/files/archive.svg"}, "zip": {"iconPath": "./icons/files/zip.svg"}, "git": {"iconPath": "./icons/files/git.svg"}, "gear": {"iconPath": "./icons/files/gear.svg"}},
+         "file": "document", "folder": "folder",
+         "fileExtensions": {"md": "markdown", "gz": "zip", "tar.gz": "archive", "gitignore": "git"},
+         "fileNames": {"README.md": "readme"},
+         "folderNames": {"Docs": "folder-docs"},
+         "languageIds": {"makefile": "gear"}}
+        """
+        let theme = try IconTheme(json: Data(json.utf8))
+        let file = { (name: String) in theme.icon(name: name, isDirectory: false, isSymbolicLink: false) }
+        precondition(file("readme.MD") == "icons/files/readme.svg")
+        precondition(file("Guide.md") == "icons/files/markdown.svg")
+        precondition(file("backup.tar.gz") == "icons/files/archive.svg")
+        precondition(file("notes.gz") == "icons/files/zip.svg")
+        precondition(file(".gitignore") == "icons/files/git.svg")
+        precondition(file("Makefile") == "icons/files/gear.svg")
+        precondition(file("rules.mk") == "icons/files/gear.svg")
+        precondition(file("Untitled") == "icons/files/document.svg")
+        precondition(file("page.php") == "icons/files/document.svg")
+        precondition(theme.icon(name: "README.md", isDirectory: false, isSymbolicLink: true) == "icons/files/link.svg")
+        precondition(theme.icon(name: "docs", isDirectory: true, isSymbolicLink: false) == "icons/folders/folder-docs.svg")
+        precondition(theme.icon(name: "drafts", isDirectory: true, isSymbolicLink: false) == "icons/folders/folder.svg")
+        let bundled = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources/Symbols")
+        let manifest = try Data(contentsOf: bundled.appendingPathComponent("symbol-icon-theme.json"))
+        let symbols = try IconTheme(json: manifest)
+        let definitions = (try JSONSerialization.jsonObject(with: manifest) as! [String: Any])["iconDefinitions"] as! [String: [String: String]]
+        precondition(definitions.count > 300)
+        for definition in definitions.values {
+            precondition(FileManager.default.fileExists(atPath: bundled.appendingPathComponent(definition["iconPath"]!).path))
+        }
+        for (name, icon) in [("Gemfile", "ruby"), (".zshrc", "shell"), ("View.hpp", "cplus"), ("Containerfile", "docker"), ("app.properties", "gear"), ("notes.markdown", "markdown")] {
+            precondition(symbols.icon(name: name, isDirectory: false, isSymbolicLink: false) == "icons/files/\(icon).svg")
+        }
+        for (name, directory, link) in [("main.swift", false, false), ("Makefile", false, false), (".gitignore", false, false), ("data.json", false, false), ("notes", false, true), ("Untitled", false, false), (".github", true, false), ("Drafts", true, false)] {
+            let path = symbols.icon(name: name, isDirectory: directory, isSymbolicLink: link)!
+            precondition(FileManager.default.fileExists(atPath: bundled.appendingPathComponent(path).path))
+        }
+        precondition(symbols.icon(name: "Makefile", isDirectory: false, isSymbolicLink: false) != symbols.icon(name: "Untitled", isDirectory: false, isSymbolicLink: false))
+        precondition(symbols.icon(name: "notes", isDirectory: false, isSymbolicLink: true) == "icons/files/link.svg")
+    }
     func testMarkdownDiffPreservesProseAndChangedBlocks() {
         let before = "# Ledger\n\nA **clear** paragraph with café 🌿.\n\n- First\n- Second\n\n```swift\nlet total = 40\n```\n"
         let after = before.replacingOccurrences(of: "clear", with: "short").replacingOccurrences(of: "40", with: "45")
@@ -310,4 +351,5 @@ try suite.testFolderListingShowsOneLevelAndReportsTruncation()
 try suite.testUnreadableFoldersAreNotEmpty()
 try suite.testRepositoryDistinguishesMissingAndEmptyFiles()
 suite.testMarkdownDiffPreservesProseAndChangedBlocks()
-print("PASS: eleven core contracts, including unreadable folders and missing files")
+try suite.testIconThemeFollowsFileIconThemeMatching()
+print("PASS: twelve core contracts, including file icon theme matching")

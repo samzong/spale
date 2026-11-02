@@ -883,8 +883,14 @@ aside {
   background: var(--selection);
 }
 
-.tree-row > svg {
-  color: var(--muted);
+.tree-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.tree-row.hidden-item .tree-icon {
+  opacity: 0.5;
 }
 
 .tree-chevron {

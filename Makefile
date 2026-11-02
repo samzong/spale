@@ -47,7 +47,7 @@ app: build ## Package .local/dist/spale.app
 	rm -rf "$(APP)"
 	mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
 	cp Info.plist "$(APP)/Contents/Info.plist"
-	cp -R Resources/AppIcon.icns Resources/Fonts "$(APP)/Contents/Resources/"
+	cp -R Resources/AppIcon.icns Resources/Fonts Resources/Symbols "$(APP)/Contents/Resources/"
 	cp .build/release/spale "$(APP)/Contents/MacOS/spale"
 	@identity="$(SIGNING_IDENTITY)"; \
 	if [ -z "$$identity" ]; then \

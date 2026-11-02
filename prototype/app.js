@@ -11,6 +11,9 @@ const paths = {
   removed: 'M3 8h10'
 };
 const icon = name => `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="${paths[name]}"/></svg>`;
+const extensionLanguages = new Map([['mk', 'makefile'], ['mak', 'makefile'], ['php', 'php'], ['vue', 'vue'], ['clj', 'clojure'], ['cljs', 'clojure'], ['cljc', 'clojure'], ['edn', 'clojure'], ['coffee', 'coffeescript'], ['j2', 'jinja'], ['jinja', 'jinja'], ['hpp', 'cpp'], ['hh', 'cpp'], ['hxx', 'cpp'], ['h++', 'cpp'], ['ipp', 'cpp'], ['m', 'objective-c'], ['pl', 'perl'], ['pm', 'perl'], ['markdown', 'markdown'], ['mdown', 'markdown'], ['mkd', 'markdown'], ['mkdn', 'markdown'], ['hbs', 'handlebars'], ['handlebars', 'handlebars'], ['properties', 'properties'], ['cfg', 'properties'], ['conf', 'properties'], ['ini', 'properties'], ['rake', 'ruby'], ['gemspec', 'ruby'], ['ru', 'ruby'], ['podspec', 'ruby'], ['rbi', 'ruby'], ['pyi', 'python'], ['pyw', 'python']]);
+const nameLanguages = new Map([['makefile', 'makefile'], ['gnumakefile', 'makefile'], ['containerfile', 'dockerfile'], ['gemfile', 'ruby'], ['rakefile', 'ruby'], ['podfile', 'ruby'], ['vagrantfile', 'ruby'], ['brewfile', 'ruby'], ['guardfile', 'ruby'], ['capfile', 'ruby'], ['fastfile', 'ruby'], ['.bashrc', 'shellscript'], ['.bash_profile', 'shellscript'], ['.bash_login', 'shellscript'], ['.bash_logout', 'shellscript'], ['.profile', 'shellscript'], ['.zshrc', 'shellscript'], ['.zprofile', 'shellscript'], ['.zlogin', 'shellscript'], ['.zlogout', 'shellscript'], ['.zshenv', 'shellscript'], ['pkgbuild', 'shellscript'], ['apkbuild', 'shellscript']]);
+let iconTheme;
 const reader = $('#reader');
 const scheme = matchMedia('(prefers-color-scheme: dark)');
 let data;
@@ -715,11 +718,12 @@ reader.addEventListener('scroll', () => {
   });
 });
 
-fetch('data.json').then(response => {
+Promise.all(['data.json', 'symbols/symbol-icon-theme.json'].map(path => fetch(path).then(response => {
   if (!response.ok) throw Error('Data unavailable');
   return response.json();
-}).then(result => {
+}))).then(([result, theme]) => {
   data = result;
+  iconTheme = readIconTheme(theme);
   windows = [makeDemoWindow(), makeFolderWindow(), makeWindow('combe', 'combe', 'main', [sample('src/main.rs', 'fn main() {\n    println!("combe");\n}\n', 'fn main() {\n    println!("hello");\n}\n')]), makeWindow('spale', 'prototype-editing', 'feat/prototype-editing', [sample('prototype.txt', 'spale\nRead and edit working changes.\n', 'spale\nRead working changes.\n')]), makeWindow('notes.txt', '', '', [sample('notes.txt', 'A small place to write.\n')], true)];
   activateWindow(windows[0].id);
   document.documentElement.dataset.ready = 'true';
@@ -728,6 +732,33 @@ fetch('data.json').then(response => {
   $('#empty').textContent = 'Changes could not be loaded.';
   console.error(error);
 });
+
+function readIconTheme(theme) {
+  const lower = map => new Map(Object.entries(map || {}).map(([key, value]) => [key.toLowerCase(), value]));
+  return {
+    paths: new Map(Object.entries(theme.iconDefinitions).map(([id, definition]) => [id, 'symbols/' + definition.iconPath.replace(/^\.\//, '')])),
+    extensions: lower(theme.fileExtensions),
+    fileNames: lower(theme.fileNames),
+    languages: new Map(Object.entries(theme.languageIds || {})),
+    folderNames: lower(theme.folderNames),
+    file: theme.file,
+    folder: theme.folder
+  };
+}
+
+function fileIcon(name, folder) {
+  const theme = iconTheme;
+  const lowered = name.toLowerCase();
+  if (folder) return theme.paths.get(theme.folderNames.get(lowered) || theme.folder);
+  if (theme.fileNames.has(lowered)) return theme.paths.get(theme.fileNames.get(lowered));
+  const segments = lowered.split('.').slice(1);
+  for (let index = 0; index < segments.length; index++) {
+    const id = theme.extensions.get(segments.slice(index).join('.'));
+    if (id) return theme.paths.get(id);
+  }
+  const language = nameLanguages.get(lowered) || extensionLanguages.get(segments.at(-1));
+  return theme.paths.get(theme.languages.get(language) || theme.file);
+}
 
 function diffRows(before, after) {
   const a = before.match(/[^\n]*\n|[^\n]+$/g) || [];
@@ -1238,7 +1269,7 @@ function renderTree() {
         : `data-tree-file="${node.index}"`;
       return `<div class="tree-node"><button class="tree-row ${hidden ? 'hidden-item' : ''} ${!folder && activeWindow.treeSelected && current === node.index ? 'active' : ''}" style="--depth:${depth}" ${attributes} title="${esc(node.path)}">
         <span class="tree-chevron ${expanded ? 'open' : ''}">${expandable ? '›' : ''}</span>
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="${folder ? 'M2 4h5l1.5 2H14v7H2z' : 'M4 2h5l3 3v9H4z M9 2v4h3'}"/></svg>
+        <img class="tree-icon" src="${esc(fileIcon(node.name, folder))}" alt="">
         <span class="tree-name">${esc(node.name)}</span>${file ? dirtyMark(file) : ''}</button>
         ${expandable ? `<div class="tree-children ${expanded ? 'open' : ''}"><div>${children(node, depth + 1)}</div></div>` : ''}</div>`;
     }).join('');

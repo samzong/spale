@@ -19,3 +19,5 @@ Run `spale` from a Git working tree, or run `spale <path>`. A file inside a repo
 spale reads Git with `/usr/bin/git --no-optional-locks`. It never stages, commits, or changes Git state. Edits stay in memory until Save. The Staged stream is read-only.
 
 `DESIGN.md` is the product specification. `prototype/` contains the visual reference with fixed sample data. View the [prototype page](https://samzong.github.io/spale/).
+
+File tree icons come from [Symbols](https://github.com/miguelsolorio/vscode-symbols) by Miguel Solorio, under the MIT license in `Resources/Symbols/LICENSE`.
