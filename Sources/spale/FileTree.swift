@@ -147,10 +147,11 @@ final class FileTree: Surface, NSOutlineViewDataSource, NSOutlineViewDelegate {
         text.lineBreakMode = .byTruncatingTail
         text.toolTip = node.message ?? node.path
         guard let entry = node.entry else { return text }
-        let icon = NSImageView(image: NSImage(systemSymbolName: entry.isDirectory ? "folder" : entry.isSymbolicLink ? "arrow.turn.up.right" : "doc", accessibilityDescription: nil)!)
-        icon.contentTintColor = Theme.muted
+        let icon = NSImageView()
+        icon.image = FileIcons.image(for: entry)
+        icon.alphaValue = entry.isHidden ? 0.5 : 1
         icon.translatesAutoresizingMaskIntoConstraints = false
-        icon.widthAnchor.constraint(equalToConstant: 16).isActive = true
+        NSLayoutConstraint.activate([icon.widthAnchor.constraint(equalToConstant: 16), icon.heightAnchor.constraint(equalToConstant: 16)])
         let row = NSStackView(views: [icon, text]); row.spacing = 8; row.orientation = .horizontal
         return row
     }
@@ -184,5 +185,19 @@ final class FileTree: Surface, NSOutlineViewDataSource, NSOutlineViewDelegate {
                 else { expanded.insert(node.path); refresh() }
             }
         } else { selected = node.path; onOpen?(node.path) }
+    }
+}
+
+@MainActor enum FileIcons {
+    private static let base = Bundle.main.url(forResource: "Symbols", withExtension: nil)
+    private static let theme = base.flatMap { try? Data(contentsOf: $0.appendingPathComponent("symbol-icon-theme.json")) }.flatMap { try? IconTheme(json: $0) }
+    private static var images: [String: NSImage] = [:]
+    static func image(for entry: FolderEntry) -> NSImage? {
+        guard let base, let path = theme?.icon(name: (entry.path as NSString).lastPathComponent, isDirectory: entry.isDirectory, isSymbolicLink: entry.isSymbolicLink) else { return nil }
+        if let image = images[path] { return image }
+        guard let image = NSImage(contentsOf: base.appendingPathComponent(path)) else { return nil }
+        image.size = NSSize(width: 16, height: 16)
+        images[path] = image
+        return image
     }
 }
