@@ -41,7 +41,7 @@ final class EmptyView: Surface {
     var monitor: Any?
     let identity = Surface()
     let mark = ShavingView()
-    let word = label("spale", color: Theme.muted, font: Theme.wordmark)
+    let word = label("Spale", color: Theme.muted, font: Theme.wordmark)
     let hint = CommandHint(frame: .zero)
     override init(frame: NSRect) {
         super.init(frame: frame)

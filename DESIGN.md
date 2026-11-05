@@ -156,7 +156,7 @@ The first time the empty-state window appears after installation, Spale plays it
 Sequence, about 1.6 seconds, using `--ease`:
 
 1. 0–900 ms: the Spale mark draws itself on the empty window: a single thin stroke peeling off a straight edge and curling into a shaving, like a plane stroke on wood.
-2. 600–1100 ms: the wordmark `spale` in Fira Code Light fades in beneath it and rises 4 pt into place.
+2. 600–1100 ms: the wordmark `Spale` in Fira Code Light fades in beneath it and rises 4 pt into place.
 3. 1100–1600 ms: the mark and wordmark shrink together as one centred group, from 28/22 scale to their final size. The hint fades in as one line over 180 ms linear.
 
 Any click or key press finishes the sequence immediately at its final frame; that input does nothing else. With Reduce Motion, the whole opening is a 200 ms crossfade into the empty state. No sound, no splash window, no welcome text, no tour, no permission prompt.

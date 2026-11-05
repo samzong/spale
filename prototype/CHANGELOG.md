@@ -3,6 +3,13 @@
 This file records prototype changes, newest first. Find each commit with `git log -- prototype/CHANGELOG.md`.
 Use `## YYYY-MM-DD — title` and the Issue, Change, Reason, and Alternative considered fields for each entry.
 
+## 2026-11-05 — Capitalized Spale wordmark
+
+- Issue: Owner request, no issue.
+- Change: Use Spale for display names and the Fira Code Light 22 wordmark at its existing position. The empty-window reference includes opening replay and appearance controls. Harness links use the same colors and states as its buttons.
+- Reason: The product name starts with a capital S. Commands, identifiers, and fictional repository names keep their lowercase spelling.
+- Alternative considered: Raise the wordmark by 2 px. Spale and spale have the same full-word bounds, so the existing centered geometry needs no adjustment.
+
 ## 2026-11-05 — Collapsible changed-files section
 
 - Issue: Owner request, no issue.
