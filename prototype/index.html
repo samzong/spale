@@ -6,8 +6,23 @@
     <title>Spale</title>
     <link rel="icon" href="data:,">
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="layout.css">
   </head>
   <body>
+    <section class="layout-study" aria-label="Prototype layout scenarios">
+      <div class="study-controls">
+        <label>Case <select id="study-case"><option value="demo">Interactive demo</option><option value="c01">C01 · Conflict banner</option><option value="c02">C02 · File path</option><option value="c03">C03 · Window bar</option></select></label>
+        <label>Appearance <select id="study-theme"><option value="light">Light</option><option value="dark">Dark</option></select></label>
+        <details class="study-fixtures"><summary>Scenarios</summary><div>
+          <label>Window width <select id="study-width"><option value="640">640 pt · 320 pt reader</option><option value="720">720 pt · 400 pt reader</option><option value="800">800 pt · 480 pt reader</option><option value="1040">1040 pt · 720 pt reader</option></select></label>
+          <label>Open windows <select id="study-count"><option value="1">1</option><option value="5" selected>5</option><option value="10">10</option></select></label>
+          <label>File path <select id="study-path"><option value="long">Long path</option><option value="mixed">Mixed Chinese and English</option><option value="renamed">Renamed path</option><option value="deleted">Deleted file</option><option value="unbroken">Long filename</option></select></label>
+        </div></details>
+        <button id="study-reset">Reset scene</button>
+      </div>
+      <p id="study-description"></p>
+      <p class="study-scope">Prototype controls only. C01, C02 A, and C03 show the owner’s selected layouts.</p>
+    </section>
     <div class="window" aria-label="Spale change reader">
       <header class="chrome">
         <div class="lights" aria-hidden="true">
@@ -79,6 +94,7 @@
       </div>
     </footer>
     <script src="sidebar.js"></script>
+    <script src="layout.js"></script>
     <script src="app.js">
     </script>
   </body>

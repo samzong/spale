@@ -119,6 +119,9 @@ final class FileSection: Surface, NSTextViewDelegate {
     let code: CodeView
     let gutter = GutterView()
     let headerButton: ActionButton
+    var headerTitle = ""
+    var headerOldPath: String?
+    var headerStatus: Character = " "
     let counts = ActionButton("", action: {})
     let conflictBar = Surface()
     var buffer: FileBuffer
@@ -171,7 +174,7 @@ final class FileSection: Surface, NSTextViewDelegate {
         conflictBar.isHidden = true
     }
     required init?(coder: NSCoder) { fatalError() }
-    func configure(rows: [DiffRow], status: Character, title: String, full: Bool, readOnly: Bool, single: Bool = false, changesVisible: Bool = true, prose: [MarkdownChange]? = nil) {
+    func configure(rows: [DiffRow], status: Character, title: String, oldPath: String? = nil, full: Bool, readOnly: Bool, single: Bool = false, changesVisible: Bool = true, prose: [MarkdownChange]? = nil) {
         code.changesVisible = changesVisible
         self.rows = rows; self.full = full; self.readOnly = readOnly
         baseline = rows.filter { $0.kind != .addition }.map(\.text).joined()
@@ -180,17 +183,7 @@ final class FileSection: Surface, NSTextViewDelegate {
         let maximum = rows.reduce(0) { max($0, $1.oldLine ?? 0, $1.newLine ?? 0) }
         code.numberWidth = (String(repeating: "0", count: max(2, String(maximum).count)) as NSString).size(withAttributes: [.font: Theme.code]).width
         code.textContainerInset.width = code.codeInset
-        let additions = rows.filter { $0.kind == .addition }.count, deletions = rows.filter { $0.kind == .deletion }.count
-        let text = NSMutableAttributedString(string: title, attributes: [.font: Theme.heading, .foregroundColor: Theme.strong])
-        let directory = (title as NSString).deletingLastPathComponent
-        if !directory.isEmpty { text.addAttribute(.foregroundColor, value: Theme.muted, range: NSRange(location: 0, length: (directory as NSString).length + 1)) }
-        if status == "D" { text.addAttribute(.strikethroughStyle, value: 1, range: NSRange(location: 0, length: text.length)) }
-        let statusName: String = ["A": "Added", "U": "Untracked", "M": "Modified", "D": "Deleted", "R": "Renamed"][String(status)] ?? ""
-        if !statusName.isEmpty { text.append(NSAttributedString(string: "   " + statusName, attributes: [.font: Theme.ui, .foregroundColor: Theme.muted])) }
-        let countText = NSMutableAttributedString(string: additions > 0 ? "+\(additions)" : "", attributes: [.font: Theme.ui, .foregroundColor: Theme.add])
-        if deletions > 0 { countText.append(NSAttributedString(string: (additions > 0 ? "  " : "") + "−\(deletions)", attributes: [.font: Theme.ui, .foregroundColor: Theme.remove])) }
-        headerButton.attributedTitle = text
-        counts.attributedTitle = changesVisible ? countText : NSAttributedString(string: "")
+        configureHeader(title: title, oldPath: oldPath, status: status, changesVisible: changesVisible)
         code.isEditable = !readOnly && buffer.content.editable && !buffer.unavailable
         render()
     }
@@ -356,27 +349,11 @@ final class FileSection: Surface, NSTextViewDelegate {
             }
         }
     }
-    private var showsConflict: Bool { buffer.unavailable ? full || buffer.isDocumentEdited : buffer.conflict }
-    private func configureConflict() {
-        conflictBar.subviews.forEach { $0.removeFromSuperview() }
-        conflictBar.isHidden = !showsConflict
-        guard !conflictBar.isHidden else { return }
-        let title = label(buffer.unavailable ? "File unavailable" : "Changed on disk", color: Theme.modify)
-        let keep = ActionButton("Keep my version") { [weak self] in self?.buffer.saveNow { _ in } }
-        let disk = ActionButton("Use disk version") { [weak self] in self?.buffer.useDisk() }
-        title.frame = NSRect(x: 16, y: 10, width: 120, height: 18)
-        keep.frame = NSRect(x: 152, y: 6, width: 120, height: 26)
-        disk.frame = NSRect(x: 288, y: 6, width: 120, height: 26)
-        conflictBar.addSubview(title)
-        if !buffer.unavailable || buffer.isDocumentEdited { conflictBar.addSubview(keep) }
-        if !buffer.unavailable { conflictBar.addSubview(disk) }
-    }
     @discardableResult func size(width: CGFloat) -> CGFloat {
         contentWidth = width
         header.frame = NSRect(x: 0, y: 0, width: width, height: topPadding)
-        headerButton.frame = NSRect(x: 16, y: 8, width: max(0, width - 148), height: 32)
-        counts.frame = NSRect(x: max(16, width - 120), y: 8, width: 104, height: 32)
-        let bannerHeight: CGFloat = showsConflict && !collapsed ? 38 : 0
+        layoutHeader(width: width)
+        let bannerHeight = showsConflict && !collapsed ? layoutConflict(width: width) : 0
         conflictBar.frame = NSRect(x: 0, y: topPadding, width: width, height: bannerHeight)
         code.isHidden = collapsed
         code.frame = NSRect(x: 0, y: topPadding + bannerHeight, width: width, height: 18)

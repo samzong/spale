@@ -10,6 +10,13 @@ Use `## YYYY-MM-DD — title` and the Issue, Change, Reason, and Alternative con
 - Reason: The product name starts with a capital S. Commands, identifiers, and fictional repository names keep their lowercase spelling.
 - Alternative considered: Raise the wordmark by 2 px. Spale and spale have the same full-word bounds, so the existing centered geometry needs no adjustment.
 
+## 2026-11-05 — Selected narrow layouts for conflicts, paths, and windows
+
+- Issue: Owner request, C01–C03 in the design audit. No issue.
+- Change: C01 keeps both conflict actions on a second row when narrow and uses one row when wide. C02 A keeps full paths when they fit, removes leading directories before shortening filenames, and shows the full path on hover whenever text is elided. C03 scrolls full window names horizontally and reveals the current window only when the current window, window list, or bar width changes. Editing and refresh preserve manual scrolling. Rename headers retain both filenames and the arrow before falling back to the new filename. Remove alternative controls; retain light/dark scenes and width, path, and window-count fixtures. Keep the scenario controls at a 16px gap.
+- Reason: Fixed frames hide conflict actions, filenames, and later windows. These are the owner’s selected layouts. The prototype conflict strings change from Chinese to the native English strings: Changed on disk, Keep my version, and Use disk version. The sidebar, save behavior, and opening order stay the same.
+- Alternative considered: Stacking each conflict action uses more reading height. Growing headers moves code down. Middle-truncating the whole path hides useful filenames too soon. Equal-width window labels hide distinct endings. The owner chose the layouts above.
+
 ## 2026-11-05 — Collapsible changed-files section
 
 - Issue: Owner request, no issue.

@@ -73,7 +73,7 @@ final class Workspace: NSWindowController, NSWindowDelegate {
     let changedCount = label("0", color: Theme.muted)
     let reader = NSScrollView()
     let readerContent = Surface()
-    let windowBar = Surface()
+    let windowBar = WindowBar()
     let previous = ActionButton("Previous change", symbol: "chevron.up", action: {})
     let next = ActionButton("Next change", symbol: "chevron.down", action: {})
     let fullButton = ActionButton("Show source", symbol: "chevron.left.forwardslash.chevron.right", action: {})
@@ -99,7 +99,7 @@ final class Workspace: NSWindowController, NSWindowDelegate {
         window.identifier = NSUserInterfaceItemIdentifier((root ?? file)?.path ?? UUID().uuidString)
         window.backgroundColor = Theme.bg
         chrome.fill = Theme.bg; sidebar.fill = Theme.bg; windowBar.fill = Theme.bg
-        sidebar.rightBorder = true; windowBar.topBorder = true
+        sidebar.rightBorder = true
         sidebar.wantsLayer = true; sidebar.clipsToBounds = true
         [chrome, sidebar, reader, windowBar].forEach { surface.addSubview($0) }
         [titleLabel, previous, next, fullButton].forEach { chrome.addSubview($0) }
@@ -145,7 +145,7 @@ final class Workspace: NSWindowController, NSWindowDelegate {
         layout(); AppDelegate.shared?.updateWindowBars()
     }
     func windowDidResize(_ notification: Notification) { layout() }
-    func windowDidBecomeKey(_ notification: Notification) { AppDelegate.shared?.updateWindowBars() }
+    func windowDidBecomeKey(_ notification: Notification) { AppDelegate.shared?.updateWindowBars(); windowBar.becomeCurrent() }
     func windowWillClose(_ notification: Notification) {
         watcher = nil
         allBuffers.forEach { NSDocumentController.shared.removeDocument($0) }
@@ -357,7 +357,7 @@ final class Workspace: NSWindowController, NSWindowDelegate {
             if currentCueAllowed, let cue = externalCues[change.path], !section.buffer.conflict {
                 section.code.showCue(started: cue.0, lines: cue.1)
             }
-            section.configure(rows: rows, status: change.status, title: change.label, full: fullPath != nil, readOnly: stream == .staged && fullPath == nil || change.status == "D" && fullPath == nil, prose: prose)
+            section.configure(rows: rows, status: change.status, title: change.path, oldPath: change.oldPath, full: fullPath != nil, readOnly: stream == .staged && fullPath == nil || change.status == "D" && fullPath == nil, prose: prose)
             readerContent.addSubview(section); visibleSections.append(section)
             if wasResponder || pendingCaret?.0 == change.path { window?.makeFirstResponder(section.code) }
             if pendingCaret?.0 == change.path { pendingCaret = nil }
@@ -422,6 +422,7 @@ final class Workspace: NSWindowController, NSWindowDelegate {
             sidebar.isHidden = side == 0; sidebar.alphaValue = 1
         }
         windowBar.frame = NSRect(x: 0, y: size.height - 32, width: size.width, height: 32)
+        windowBar.layoutContents()
         let width = NSScrollView.contentSize(forFrameSize: readerFrame.size, horizontalScrollerClass: nil, verticalScrollerClass: NSScroller.self, borderType: reader.borderType, controlSize: .regular, scrollerStyle: reader.scrollerStyle).width
         var y: CGFloat = 0
         for section in visibleSections {
@@ -447,22 +448,7 @@ final class Workspace: NSWindowController, NSWindowDelegate {
         titleLabel.attributedStringValue = title
         window?.title = name; window?.isDocumentEdited = edited
     }
-    func updateWindowBar(_ workspaces: [Workspace]) {
-        windowBar.subviews.forEach { $0.removeFromSuperview() }
-        var x: CGFloat = 8
-        for workspace in workspaces {
-            let button = ActionButton(workspace.displayName + (workspace.edited ? "  ●" : "")) { workspace.show() }
-            button.cell?.usesSingleLineMode = true
-            let width = min(280, button.intrinsicContentSize.width + 32)
-            button.frame = NSRect(x: x, y: 4, width: width, height: 24)
-            if workspace === self {
-                let selected = Surface(frame: button.frame)
-                selected.fill = Theme.selection; selected.wantsLayer = true; selected.layer?.cornerRadius = 8
-                windowBar.addSubview(selected)
-            }
-            windowBar.addSubview(button); x += width
-        }
-    }
+    func updateWindowBar(_ workspaces: [Workspace]) { windowBar.update(workspaces, current: self) }
     func showMessage(_ text: String) {
         readerContent.subviews.filter { !($0 is FileSection) }.forEach { $0.removeFromSuperview() }
         let field = label(text, color: Theme.muted, font: Theme.message)

@@ -324,12 +324,6 @@ function editable() {
   return mode === 'full' || flow === 'Unstaged';
 }
 
-function fileHeader(file) {
-  return `<div contenteditable="false" class="file-head" data-key="head" data-line="head"><span class="path"><span class="directory">${esc(file.path.slice(0, file.path.lastIndexOf('/') + 1))}</span>${esc(file.path.split('/').pop())}${dirtyMark(files.find(item => item.path === file.path) || file)}</span>
-    <span class="status">${{ M: 'Modified', A: 'Added', U: 'Untracked', R: 'Renamed', D: 'Deleted' }[file.status] || ''}</span>
-    <span class="counts">${file.plus ? `<span class="plus">+${file.plus}</span>` : ''}${file.minus ? `<span class="minus">−${file.minus}</span>` : ''}</span></div>`;
-}
-
 function fold(file, from, to) {
   if (to < from) return '';
   if (to - from + 1 < 4) {
@@ -699,6 +693,7 @@ Promise.all(['data.json', 'symbols/symbol-icon-theme.json'].map(path => fetch(pa
   iconTheme = readIconTheme(theme);
   windows = [makeDemoWindow(), makeFolderWindow(), makeWindow('combe', 'combe', 'main', [sample('src/main.rs', 'fn main() {\n    println!("combe");\n}\n', 'fn main() {\n    println!("hello");\n}\n')]), makeWindow('spale', 'prototype-editing', 'feat/prototype-editing', [sample('prototype.txt', 'Spale\nRead and edit working changes.\n', 'Spale\nRead working changes.\n')]), makeWindow('notes.txt', '', '', [sample('notes.txt', 'A small place to write.\n')], true)];
   activateWindow(windows[0].id);
+  initializeLayoutStudy();
   document.documentElement.dataset.ready = 'true';
 }).catch(error => {
   $('#empty').hidden = false;
@@ -809,11 +804,6 @@ function windowLabel(win) {
   return win.single ? win.files[0].path : win.repo + (win.worktree !== win.repo ? '/' + win.worktree : '');
 }
 
-function windowBar() {
-  $('#windows').innerHTML = windows.map(win => `<button data-window="${win.id}" class="${win === activeWindow ? 'active' : ''}" aria-current="${win === activeWindow}">${esc(windowLabel(win))}${win.files.some(dirty) ? '<span class="unsaved" aria-label="Unsaved changes">●</span>' : ''}</button>`).join('');
-  $('#windows').querySelectorAll('button').forEach(button => button.onclick = () => activateWindow(+button.dataset.window));
-}
-
 function makeFlow(single) {
   return { current: 0, mode: single ? 'full' : 'stream', expanded: new Set(), collapsedFiles: new Set() };
 }
@@ -900,10 +890,6 @@ function activateWindow(id) {
   live = target.live;
   restoreFlow();
   finishViewFade(fading);
-}
-
-function conflict(file) {
-  return file.conflict ? `<div class="conflict" contenteditable="false"><span>文件已在磁盘上改变</span><button data-save="${esc(file.path)}">保存（覆盖磁盘）</button><button data-revert="${esc(file.path)}">还原（采用磁盘版本）</button></div>` : '';
 }
 
 function restoreReadingAnchor(anchor) {
