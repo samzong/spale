@@ -41,7 +41,7 @@ final class EmptyView: Surface {
     var monitor: Any?
     let identity = Surface()
     let mark = ShavingView()
-    let word = label("spale", color: Theme.muted, font: Theme.wordmark)
+    let word = label("Spale", color: Theme.muted, font: Theme.wordmark)
     let hint = CommandHint(frame: .zero)
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -216,7 +216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func showEmpty() {
         if let emptyWindow { emptyWindow.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 420), styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView], backing: .buffered, defer: false)
-        window.title = "spale"; window.titleVisibility = .hidden; window.titlebarAppearsTransparent = true
+        window.title = "Spale"; window.titleVisibility = .hidden; window.titlebarAppearsTransparent = true
         window.tabbingMode = .disallowed; window.isReleasedWhenClosed = false; window.backgroundColor = Theme.bg; window.center()
         let view = EmptyView(frame: NSRect(x: 0, y: 0, width: 640, height: 420))
         window.contentView = view; emptyWindow = window; emptyView = view
@@ -255,10 +255,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             entry.target = target; entry.keyEquivalentModifierMask = mask; entry.tag = tag
             menu.addItem(entry)
         }
-        let app = group("spale")
-        item(app, "About spale", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), target: NSApp)
-        app.addItem(.separator()); item(app, "Hide spale", #selector(NSApplication.hide(_:)), "h", target: NSApp)
-        item(app, "Quit spale", #selector(NSApplication.terminate(_:)), "q", target: NSApp)
+        let app = group("Spale")
+        item(app, "About Spale", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), target: NSApp)
+        app.addItem(.separator()); item(app, "Hide Spale", #selector(NSApplication.hide(_:)), "h", target: NSApp)
+        item(app, "Quit Spale", #selector(NSApplication.terminate(_:)), "q", target: NSApp)
         let file = group("File")
         item(file, "New", #selector(newDocument(_:)), "n", target: self)
         file.addItem(.separator()); item(file, "Close", #selector(NSWindow.performClose(_:)), "w")

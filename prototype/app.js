@@ -691,7 +691,7 @@ Promise.all(['data.json', 'symbols/symbol-icon-theme.json'].map(path => fetch(pa
 }))).then(([result, theme]) => {
   data = result;
   iconTheme = readIconTheme(theme);
-  windows = [makeDemoWindow(), makeFolderWindow(), makeWindow('combe', 'combe', 'main', [sample('src/main.rs', 'fn main() {\n    println!("combe");\n}\n', 'fn main() {\n    println!("hello");\n}\n')]), makeWindow('spale', 'prototype-editing', 'feat/prototype-editing', [sample('prototype.txt', 'spale\nRead and edit working changes.\n', 'spale\nRead working changes.\n')]), makeWindow('notes.txt', '', '', [sample('notes.txt', 'A small place to write.\n')], true)];
+  windows = [makeDemoWindow(), makeFolderWindow(), makeWindow('combe', 'combe', 'main', [sample('src/main.rs', 'fn main() {\n    println!("combe");\n}\n', 'fn main() {\n    println!("hello");\n}\n')]), makeWindow('spale', 'prototype-editing', 'feat/prototype-editing', [sample('prototype.txt', 'Spale\nRead and edit working changes.\n', 'Spale\nRead working changes.\n')]), makeWindow('notes.txt', '', '', [sample('notes.txt', 'A small place to write.\n')], true)];
   activateWindow(windows[0].id);
   initializeLayoutStudy();
   document.documentElement.dataset.ready = 'true';
@@ -811,7 +811,7 @@ function makeFlow(single) {
 function titleBar() {
   const win = activeWindow;
   $('#workspace').innerHTML = `<span>${esc(win.single ? win.files[0].path : win.repo + (win.worktree !== win.repo ? ' › ' + win.worktree : ''))}${win.files.some(dirty) ? '<span class="unsaved" aria-label="Unsaved changes">●</span>' : ''}</span>${win.single || win.folder ? '' : `<span class="branch">${esc(win.branch)}</span>`}`;
-  document.title = 'spale · ' + windowLabel(win);
+  document.title = 'Spale · ' + windowLabel(win);
   reader.setAttribute('aria-label', win.folder ? 'Full file' : 'Continuous changes');
   $('.window').classList.toggle('sidebar-collapsed', win.collapsed || win.single);
   $('.window').classList.toggle('single-file', win.single);
@@ -1143,7 +1143,7 @@ $('#close-window').onclick = () => {
   clearSelection();
   activeWindow = null;
   if (windows.length) activateWindow(windows[Math.min(position, windows.length - 1)].id);
-  else { files = []; $('#stream').replaceChildren(); $('#fullfile').replaceChildren(); $('#workspace').textContent = 'spale'; windowBar(); }
+  else { files = []; $('#stream').replaceChildren(); $('#fullfile').replaceChildren(); $('#workspace').textContent = 'Spale'; windowBar(); }
 };
 
 $('#stage').onclick = () => {

@@ -1,19 +1,19 @@
-# spale design
+# Spale design
 
 This document is the authoritative product and interaction specification for the native app. The interactive prototype in `prototype/` is the visual and motion reference; where the two differ, this document wins. The prototype's footer controls (open window, close window, new file, git add, appearance, agent update, clean state) only simulate the outside world and are not part of the product.
 
 ## Product
 
-spale does two things, in priority order:
+Spale does two things, in priority order:
 
 1. **Live reader of uncommitted changes.** It shows what an agent (or anyone) is changing in a Git working tree right now: staged and unstaged changes against `HEAD`, updated live as files are written.
-2. **The most basic plain-text editor.** Mainstream editors have turned into agent tools; spale keeps a plain editor for the moments the user wants to change a file themselves.
+2. **The most basic plain-text editor.** Mainstream editors have turned into agent tools; Spale keeps a plain editor for the moments the user wants to change a file themselves.
 
 Platform and stack: macOS only, Swift and AppKit, no SwiftUI, zero configuration, no settings window.
 
 ### Boundary
 
-spale never performs a Git operation and never writes Git state. It has no history, log, blame, commit, stage, unstage, checkout, branch switching, stash, or remote features. It reads the working tree, the index, and `HEAD`, and nothing else. Every save checks the destination again, including Save As and symbolic links. Git metadata in ordinary repositories, bare repositories, and separate Git directories is protected. A rejected save preserves the document's path and unsaved edits. This protection does not repair earlier changes to Git metadata.
+Spale never performs a Git operation and never writes Git state. It has no history, log, blame, commit, stage, unstage, checkout, branch switching, stash, or remote features. It reads the working tree, the index, and `HEAD`, and nothing else. Every save checks the destination again, including Save As and symbolic links. Git metadata in ordinary repositories, bare repositories, and separate Git directories is protected. A rejected save preserves the document's path and unsaved edits. This protection does not repair earlier changes to Git metadata.
 
 The editor excludes project search, multiple cursors, completion, language servers, formatting, bracket pairing, plugins, tabs, split panes, and a terminal.
 
@@ -21,7 +21,7 @@ Moving this boundary requires proof of value and an explicit owner decision.
 
 ### Interaction principle
 
-Every shortcut and every mode is a cost to the user. Add none unless it is necessary. The user operates spale with ordinary computer habits: click, scroll, type, the arrow keys, and standard macOS commands. Nothing has to be learned.
+Every shortcut and every mode is a cost to the user. Add none unless it is necessary. The user operates Spale with ordinary computer habits: click, scroll, type, the arrow keys, and standard macOS commands. Nothing has to be learned.
 
 Keyboard commands are exactly these; anything else must be clickable UI:
 
@@ -41,7 +41,7 @@ There are no single-key commands, no reading or editing modes, no ⌘1…⌘9, a
 
 ### Quality bar
 
-spale must feel like a top-tier professional tool the instant it opens: unified, restrained, refined, and orderly. Nothing may look cheap, assembled from parts, static, or feature-stuffed. Interaction design, typography, spacing, and motion are release criteria, not polish. Every surface follows the tokens and motion rules below; any element that does not earn its place is removed.
+Spale must feel like a top-tier professional tool the instant it opens: unified, restrained, refined, and orderly. Nothing may look cheap, assembled from parts, static, or feature-stuffed. Interaction design, typography, spacing, and motion are release criteria, not polish. Every surface follows the tokens and motion rules below; any element that does not earn its place is removed.
 
 ## Windows
 
@@ -70,7 +70,7 @@ The branch is dimmed. A `●` follows the name while any file in the window has 
 
 The Staged group uses the `HEAD`→index status; the Unstaged group uses the index→worktree status. The heading of the group whose stream is showing is highlighted. ⌘B collapses the sidebar and the reader takes the full width.
 
-**Window bar.** A one-line bar at the bottom listing every open spale document window, from the left, in opening order. The current window is highlighted. Labels are `repo` or `repo › worktree` for repository windows, the folder name for folder windows, and the file name for single-file windows, with `●` for unsaved edits. Clicking a label brings that window forward, including its display and Space. The bar never opens windows and updates live as windows open and close. Names stay in full in a horizontally scrolling bar with overlay scrollers. The current label scrolls into view only when the current window, window list, or bar width changes. Edits and refreshes preserve manual scrolling.
+**Window bar.** A one-line bar at the bottom listing every open Spale document window, from the left, in opening order. The current window is highlighted. Labels are `repo` or `repo › worktree` for repository windows, the folder name for folder windows, and the file name for single-file windows, with `●` for unsaved edits. Clicking a label brings that window forward, including its display and Space. The bar never opens windows and updates live as windows open and close. Names stay in full in a horizontally scrolling bar with overlay scrollers. The current label scrolls into view only when the current window, window list, or bar width changes. Edits and refreshes preserve manual scrolling.
 
 ### Folder windows and file trees
 
@@ -151,25 +151,25 @@ Editing is NSTextView plus NSDocument behaviour; prefer what AppKit already prov
 
 ### First launch
 
-The first time the empty-state window appears after installation, spale plays its one-time opening, then rests in the empty state. It is shown once per installation, recorded in user defaults; if the very first launch opens a repository directly, the opening plays the first time the empty state appears later.
+The first time the empty-state window appears after installation, Spale plays its one-time opening, then rests in the empty state. It is shown once per installation, recorded in user defaults; if the very first launch opens a repository directly, the opening plays the first time the empty state appears later.
 
 Sequence, about 1.6 seconds, using `--ease`:
 
-1. 0–900 ms: the spale mark draws itself on the empty window: a single thin stroke peeling off a straight edge and curling into a shaving, like a plane stroke on wood.
-2. 600–1100 ms: the wordmark `spale` in Fira Code Light fades in beneath it and rises 4 pt into place.
+1. 0–900 ms: the Spale mark draws itself on the empty window: a single thin stroke peeling off a straight edge and curling into a shaving, like a plane stroke on wood.
+2. 600–1100 ms: the wordmark `Spale` in Fira Code Light fades in beneath it and rises 4 pt into place.
 3. 1100–1600 ms: the mark and wordmark shrink together as one centred group, from 28/22 scale to their final size. The hint fades in as one line over 180 ms linear.
 
 Any click or key press finishes the sequence immediately at its final frame; that input does nothing else. With Reduce Motion, the whole opening is a 200 ms crossfade into the empty state. No sound, no splash window, no welcome text, no tour, no permission prompt.
 
 ### Every later launch
 
-Standard macOS window restoration reopens the previous repository, folder, and file windows, following the system setting "Close windows when quitting an application". When nothing is restored, or when the Dock icon is clicked with no windows open, spale shows the empty-state window. Closing the last window does not quit the app.
+Standard macOS window restoration reopens the previous repository, folder, and file windows, following the system setting "Close windows when quitting an application". When nothing is restored, or when the Dock icon is clicked with no windows open, Spale shows the empty-state window. Closing the last window does not quit the app.
 
 ### Empty state
 
 A single quiet window, centred, about 640 × 420 pt, with no window bar and nothing to click:
 
-- The spale mark uses a 72 pt canvas with a visible stroke about 40 pt wide. It uses the icon's warm gold in dark appearance and darker bronze in light appearance, including during the opening. The mark and wordmark form one centred group.
+- The Spale mark uses a 72 pt canvas with a visible stroke about 40 pt wide. It uses the icon's warm gold in dark appearance and darker bronze in light appearance, including during the opening. The mark and wordmark form one centred group.
 - At the bottom, one centred line reads `Run spale . in a terminal.` The command `spale .` uses Fira Code in the soft colour. The surrounding text uses the muted system font. A quiet line-colour chip surrounds the command, with 6 pt horizontal padding and a 5 pt corner radius. The chip and text fade in together.
 
 The empty-state window is not listed in the window bar.
@@ -224,7 +224,7 @@ Motion uses one curve, `--ease: cubic-bezier(.22, .8, .2, 1)`: 380 ms for layout
 
 ## Engineering constraints
 
-- Read Git state without taking locks: never create `index.lock` or refresh the index (for the `git` CLI, use `--no-optional-locks`), so spale never blocks or races an agent's own Git commands.
+- Read Git state without taking locks: never create `index.lock` or refresh the index (for the `git` CLI, use `--no-optional-locks`), so Spale never blocks or races an agent's own Git commands.
 - Watch the worktree, the index, and `HEAD` with FSEvents; coalesce bursts of writes; respect `.gitignore` for untracked files.
 - Stay smooth while an agent rewrites large files: diff work happens off the main thread and the reading position is preserved across every update.
 - No network access, telemetry, accounts, or configuration files.
