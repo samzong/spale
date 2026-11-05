@@ -19,7 +19,7 @@ LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Frameworks/Launc
 
 .PHONY: build check icon
 
-build: ## Release build of spale
+build: ## Release build of Spale
 	swift build -c release
 
 check: ## Run the core contract checks
@@ -77,7 +77,7 @@ install: app ## Replace /Applications/spale.app and link the spale and code comm
 	$(LSREGISTER) -f "$(TARGET)"
 	@printf '$(GREEN)  ✓ %s, %s$(RESET)\n' "$(TARGET)" "$(foreach name,$(COMMANDS),$(BIN)/$(name))"
 
-uninstall: ## Quit spale and remove /Applications/spale.app and its command links
+uninstall: ## Quit Spale and remove /Applications/spale.app and its command links
 	@$(MAKE) --no-print-directory quit
 	@for name in $(COMMANDS); do \
 		link="$(BIN)/$$name"; \
@@ -91,7 +91,7 @@ quit:
 	@if pgrep -x spale >/dev/null; then \
 		osascript -e 'tell application id "$(BUNDLE_ID)" to quit'; \
 		for attempt in $$(seq 20); do pgrep -x spale >/dev/null || break; sleep 0.25; done; \
-		if pgrep -x spale >/dev/null; then echo 'spale is still running. Save and close its documents first.' >&2; exit 1; fi; \
+		if pgrep -x spale >/dev/null; then echo 'Spale is still running. Save and close its documents first.' >&2; exit 1; fi; \
 	fi
 
 # ── Maintenance ──────────────────────────────────────────────────────────────
@@ -106,7 +106,7 @@ clean: ## Remove .build and .local/dist
 .PHONY: help
 
 help: ## Show available targets
-	@awk 'BEGIN {FS = ":.*## "; printf "\n$(BOLD)spale$(RESET) — native macOS reader for live Git changes and plain-text editor\n"} \
+	@awk 'BEGIN {FS = ":.*## "; printf "\n$(BOLD)Spale$(RESET) — native macOS reader for live Git changes and plain-text editor\n"} \
 		/^# ── / {n = $$0; gsub(/(^# ── | (─)+$$)/, "", n); printf "\n$(BOLD)%s$(RESET)\n", n} \
 		/^[a-zA-Z_-]+:.*## / {printf "  $(CYAN)make %-14s$(RESET) %s\n", $$1, $$2} \
 		END {printf "\n"}' $(MAKEFILE_LIST)
