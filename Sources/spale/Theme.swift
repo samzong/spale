@@ -41,6 +41,15 @@ enum Theme {
     static let heading = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
     static let message = NSFont.monospacedDigitSystemFont(ofSize: 15, weight: .regular)
     static var reducedMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    static func disclosure(collapsed: Bool) -> NSImage? {
+        guard let symbol = NSImage(systemSymbolName: collapsed ? "chevron.right" : "chevron.down", accessibilityDescription: nil) else { return nil }
+        let image = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
+            symbol.draw(in: NSRect(x: (rect.width - symbol.size.width) / 2, y: (rect.height - symbol.size.height) / 2, width: symbol.size.width, height: symbol.size.height))
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
     static func registerFonts() {
         guard let resources = Bundle.main.resourceURL, let enumerator = FileManager.default.enumerator(at: resources, includingPropertiesForKeys: nil) else { return }
         for case let url as URL in enumerator where ["ttf", "otf"].contains(url.pathExtension) {

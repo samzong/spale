@@ -35,11 +35,7 @@
           <div class="body">
             <aside>
               <section id="changes-panel" aria-label="Changed files">
-              <div class="side-heading">
-                <span>CHANGED FILES</span>
-                <span id="file-count">
-                </span>
-              </div>
+              <button id="changes-heading" class="side-heading" aria-expanded="true"><span>CHANGED FILES</span><span class="changes-disclosure">›</span><span id="file-count"></span></button>
               <nav id="files" aria-label="Changed files">
               </nav>
               </section>
@@ -61,6 +57,11 @@
         <footer class="harness">
           <span>spale <span class="dim">/</span> sidebar study</span>
           <div>
+            <label for="collapse-policy">Changed files</label>
+            <select id="collapse-policy" aria-label="Changed files collapse behavior">
+              <option value="keep">Keep manual choice (recommended)</option>
+              <option value="follow">Follow changes</option>
+            </select>
             <button id="context-choice">Git repository</button>
           </div>
           <div>
@@ -77,6 +78,7 @@
             <button id="appearance" title="Change appearance">System</button>
       </div>
     </footer>
+    <script src="sidebar.js"></script>
     <script src="app.js">
     </script>
   </body>

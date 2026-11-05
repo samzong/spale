@@ -3,6 +3,13 @@
 This file records prototype changes, newest first. Find each commit with `git log -- prototype/CHANGELOG.md`.
 Use `## YYYY-MM-DD — title` and the Issue, Change, Reason, and Alternative considered fields for each entry.
 
+## 2026-11-05 — Collapsible changed-files section
+
+- Issue: Owner request, no issue.
+- Change: CHANGED FILES now uses the same 40 px disclosure row and 380 ms ease as FILES. An empty or clean state collapses it by default, and FILES takes the remaining space. A click stores the choice per window. The harness can keep that choice or follow clean-state changes.
+- Reason: The two sidebar sections need a shared collapse interaction while retaining the file tree when there are no changes.
+- Alternative considered: Reset the section to its count-based default after each clean-state change. Keep a manual choice instead because a clean-state toggle should not override the user's selection.
+
 ## 2026-11-02 — Symbols icons in the file tree
 
 - Issue: Owner request, no issue.

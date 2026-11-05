@@ -621,6 +621,20 @@ main {
   font-size: 12px;
 }
 
+.harness label {
+  align-self: center;
+}
+
+.harness select {
+  max-width: 220px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--hover);
+  color: inherit;
+  font: inherit;
+}
+
 .dim {
   margin: 0 8px;
   opacity: .5;
@@ -808,7 +822,12 @@ aside {
 }
 
 .group-heading:is(:hover, :active),
+#changes-heading:is(:hover, :active),
 #tree-heading:is(:hover, :active) { background: none; }
+
+#changes-heading {
+  transition: color 380ms var(--ease);
+}
 .group-heading.active { color: var(--strong); font-weight: 600; }
 .file-row[data-status="A"] .file-status,
 .file-row[data-status="U"] .file-status { color: var(--add); }
@@ -819,34 +838,75 @@ aside {
 
 #changes-panel {
   display: flex;
+  flex: 1 1 0;
   flex-direction: column;
-  min-height: 100px;
-  max-height: 52%;
-  flex-shrink: 0;
+  min-height: 0;
+  overflow: hidden;
+  transition: flex-grow 380ms var(--ease), flex-basis 380ms var(--ease);
 }
 
 #changes-panel .side-heading {
   flex-shrink: 0;
 }
 
+#changes-panel.collapsed {
+  flex: 0 0 40px;
+  overflow: hidden;
+}
+
+#changes-heading,
+#tree-heading {
+  display: flex;
+  align-items: center;
+  width: calc(100% - 16px);
+  height: 40px;
+  min-height: 40px;
+  margin: 0 8px;
+  text-align: left;
+}
+
+#changes-heading {
+  justify-content: flex-start;
+  gap: 8px;
+  color: var(--muted);
+}
+
+#changes-heading .changes-disclosure {
+  order: -1;
+  font-size: 18px;
+  color: var(--muted);
+  transform: rotate(90deg);
+  transition: transform 380ms var(--ease);
+}
+
+#changes-heading[aria-expanded='false'] .changes-disclosure {
+  transform: none;
+}
+
+#file-count {
+  margin-left: auto;
+}
+
 #tree-panel {
   display: flex;
+  flex: 1 1 0;
   flex-direction: column;
   min-height: 0;
-  flex: 1;
-  margin-top: 16px;
-  padding-top: 16px;
+  margin-top: 0;
+  padding-top: 0;
   border-top: 1px solid var(--line);
+  overflow: hidden;
+  transition: flex-grow 380ms var(--ease), flex-basis 380ms var(--ease);
 }
 
 #tree-heading {
-  width: calc(100% - 16px);
-  text-align: left;
-  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
   flex-shrink: 0;
 }
 
 #tree-heading .tree-chevron {
+  order: -1;
   transform: rotate(90deg);
 }
 
@@ -983,16 +1043,19 @@ aside {
 @media (prefers-reduced-motion: reduce) {
   .tree-children,
   .tree-chevron,
-  #tree-body {
+  #tree-body,
+  #tree-panel,
+  #changes-panel,
+  #changes-heading,
+  #changes-heading .changes-disclosure {
     transition: none;
   }
 }
 
-.tree-closed #changes-panel {
-  max-height: none;
-  flex: 1;
+.tree-closed #changes-panel:not(.collapsed) {
+  flex: 1 1 0;
 }
 
 .tree-closed #tree-panel {
-  flex: 0 0 auto;
+  flex: 0 0 40px;
 }
