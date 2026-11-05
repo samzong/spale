@@ -9,6 +9,7 @@ final class WorkspaceWindow: NSWindow {
         coder.encode(workspace.fullPath, forKey: "spaleFullPath")
         coder.encode(workspace.stream.rawValue, forKey: "spaleStream")
         coder.encode(workspace.sidebarVisible, forKey: "spaleSidebar")
+        if let collapsed = workspace.changedFilesCollapsed { coder.encode(collapsed, forKey: "spaleChangesCollapsed") }
         coder.encode(workspace.fileTree?.expandedPaths, forKey: "spaleTreeExpanded")
         coder.encode(workspace.fileTree?.collapsed ?? false, forKey: "spaleTreeCollapsed")
     }
@@ -20,6 +21,9 @@ final class WorkspaceWindow: NSWindow {
             workspace.stream = SpaleCore.Stream(rawValue: stream) ?? .unstaged
         }
         workspace.sidebarVisible = coder.decodeBool(forKey: "spaleSidebar")
+        if coder.containsValue(forKey: "spaleChangesCollapsed") {
+            workspace.changedFilesCollapsed = coder.decodeBool(forKey: "spaleChangesCollapsed")
+        }
         if let paths = coder.decodeObject(of: [NSArray.self, NSString.self], forKey: "spaleTreeExpanded") as? [String] {
             workspace.fileTree?.restore(expanded: paths, collapsed: coder.decodeBool(forKey: "spaleTreeCollapsed"))
         }
@@ -54,6 +58,7 @@ final class Workspace: NSWindowController, NSWindowDelegate {
     var visibleSections: [FileSection] = []
     var watcher: Watcher?
     var sidebarVisible = true
+    var changedFilesCollapsed: Bool?
     var busy = false
     var refreshAgain = false
     var generation = 0
@@ -64,6 +69,8 @@ final class Workspace: NSWindowController, NSWindowDelegate {
     let sidebar = Surface()
     let sidebarScroll = NSScrollView()
     let sidebarContent = Surface()
+    let changedHeading = ActionButton("CHANGED FILES", action: {})
+    let changedCount = label("0", color: Theme.muted)
     let reader = NSScrollView()
     let readerContent = Surface()
     let windowBar = Surface()
@@ -98,6 +105,7 @@ final class Workspace: NSWindowController, NSWindowDelegate {
         [titleLabel, previous, next, fullButton].forEach { chrome.addSubview($0) }
         titleLabel.font = Theme.uiMedium
         sidebar.addSubview(sidebarScroll)
+        configureChangedHeading()
         sidebarScroll.documentView = sidebarContent; sidebarScroll.hasVerticalScroller = true; sidebarScroll.autohidesScrollers = true; sidebarScroll.drawsBackground = false
         reader.documentView = readerContent; reader.hasVerticalScroller = true; reader.autohidesScrollers = true
         reader.drawsBackground = false; reader.contentView.drawsBackground = false
@@ -213,14 +221,15 @@ final class Workspace: NSWindowController, NSWindowDelegate {
                             }
                         }
                     }
+                    let hadSnapshot = self.snapshot != nil, wasCollapsed = self.changesCollapsed
                     self.snapshot = snapshot
                     if self.watcher == nil {
                         self.watcher = Watcher(paths: Array(Set([root.path, snapshot.gitDirectory.path, snapshot.commonDirectory.path]))) { [weak self] paths in self?.watcherChanged(paths) }
                     }
                     for path in changed { self.sections.values.filter { $0.path == path }.forEach { $0.collapsed = false } }
-                    self.recompute()
+                    self.recompute(animated: self.shown && hadSnapshot && wasCollapsed != self.changesCollapsed)
                 case .failure(let error):
-                    self.showMessage(error.localizedDescription)
+                    self.showMessage(error.localizedDescription); self.layout()
                 }
                 if self.refreshAgain { self.refreshAgain = false; self.refresh(tree: false) }
             }
@@ -281,7 +290,7 @@ final class Workspace: NSWindowController, NSWindowDelegate {
         fileTree?.select(path); updateTitle(); layout(); AppDelegate.shared?.updateWindowBars()
     }
 
-    func recompute() {
+    func recompute(animated: Bool = false) {
         if root != nil && !isRepository { renderFolder(); return }
         guard let snapshot else { return }
         generation += 1
@@ -314,12 +323,12 @@ final class Workspace: NSWindowController, NSWindowDelegate {
                         let position = section.caretAfterEdit ?? Projection.sourceRange(for: section.code.selectedRange(), segments: section.segments, sourceLength: (section.buffer.text as NSString).length)?.location ?? 0
                         self.pendingCaret = (match.0.path, position)
                     }
-                    self.fullPath = match.0.path; self.selectedPath = match.0.path; self.recompute(); return
+                    self.fullPath = match.0.path; self.selectedPath = match.0.path; self.recompute(animated: animated); return
                 }
                 for (change, rows, _, _, _) in rendered where currentFull == nil {
                     self.sidebarCounts[currentStream.rawValue + ":" + change.path] = (rows.filter { $0.kind == .addition }.count, rows.filter { $0.kind == .deletion }.count)
                 }
-                self.apply(rendered.map { ($0.0, $0.1, $0.4) })
+                self.apply(rendered.map { ($0.0, $0.1, $0.4) }, animated: animated)
                 self.buildSidebar()
             }
         }
@@ -327,7 +336,7 @@ final class Workspace: NSWindowController, NSWindowDelegate {
 
     var currentCueAllowed: Bool { stream == .unstaged || fullPath != nil }
 
-    func apply(_ renders: [(Change, [DiffRow], [MarkdownChange]?)]) {
+    func apply(_ renders: [(Change, [DiffRow], [MarkdownChange]?)], animated: Bool = false) {
         let anchor = captureAnchor()
         let responder = window?.firstResponder
         visibleSections.forEach { $0.removeFromSuperview() }
@@ -357,7 +366,7 @@ final class Workspace: NSWindowController, NSWindowDelegate {
             let clean = snapshot?.changes.isEmpty == true
             showMessage(clean ? "No changes. A little room to think." : stream == .staged ? "No staged changes." : "No unstaged changes.")
         }
-        layout()
+        layout(animated: animated)
         restoreAnchor(anchor)
         if let afterLayout { self.afterLayout = nil; afterLayout() }
         AppDelegate.shared?.updateWindowBars()
@@ -370,78 +379,6 @@ final class Workspace: NSWindowController, NSWindowDelegate {
         section.configure(rows: LineDiff.rows(before: buffer.content.text, after: buffer.text), status: "M", title: "", full: true, readOnly: false, single: true)
         if section.superview == nil { readerContent.addSubview(section) }
         visibleSections = [section]; layout(); updateTitle(); AppDelegate.shared?.updateWindowBars()
-    }
-
-    func buildSidebar() {
-        sidebarContent.subviews.forEach { $0.removeFromSuperview() }
-        fileTree?.select(fullPath)
-        guard let snapshot else { return }
-        let unique = Set(snapshot.changes.map(\.path)).count
-        let heading = label("CHANGED FILES", color: Theme.muted)
-        heading.frame = NSRect(x: 16, y: 16, width: 240, height: 18)
-        sidebarContent.addSubview(heading)
-        let count = label("\(unique)", color: Theme.muted); count.alignment = .right
-        count.frame = NSRect(x: 270, y: 16, width: 30, height: 18); sidebarContent.addSubview(count)
-        var y: CGFloat = 46
-        for group in SpaleCore.Stream.allCases {
-            let groupButton = ActionButton(group == .staged ? "Staged" : "Unstaged") { [weak self] in self?.switchStream(group) }
-            groupButton.title = ""
-            let groupTitle = label(group == .staged ? "Staged" : "Unstaged", color: group == stream ? Theme.strong : Theme.muted, font: group == stream ? Theme.uiMedium : Theme.ui)
-            groupTitle.frame = NSRect(x: 8, y: 8, width: 288, height: 18)
-            groupButton.addSubview(groupTitle)
-            groupButton.frame = NSRect(x: 8, y: y, width: 304, height: 34)
-            sidebarContent.addSubview(groupButton); y += 34
-            for change in snapshot.changes.filter({ $0.stream == group }) {
-                let button = ActionButton(change.label) { [weak self] in
-                    guard let self else { return }
-                    self.selectedPath = change.path
-                    if self.fullPath != nil { self.fullPath = change.path; self.recompute() }
-                    else {
-                        self.switchStream(group)
-                        self.afterLayout = { [weak self] in self?.scrollToFile(change.path) }
-                        self.scrollToFile(change.path)
-                    }
-                }
-                button.title = ""
-                let text = NSMutableAttributedString(string: "\(change.status)  ", attributes: [.font: Theme.ui, .foregroundColor: change.status == "A" || change.status == "U" ? Theme.add : change.status == "D" ? Theme.remove : change.status == "R" ? Theme.number : Theme.muted])
-                let name = change.oldPath == nil ? (change.path as NSString).lastPathComponent : change.label
-                text.append(NSAttributedString(string: name, attributes: [.font: Theme.row, .foregroundColor: Theme.strong]))
-                let directory = (change.path as NSString).deletingLastPathComponent
-                if !directory.isEmpty && change.oldPath == nil { text.append(NSAttributedString(string: "  \(directory)/", attributes: [.font: Theme.ui, .foregroundColor: Theme.muted])) }
-                if change.status == "D" { text.addAttribute(.strikethroughStyle, value: 1, range: NSRange(location: 3, length: text.length - 3)) }
-                let paragraph = NSMutableParagraphStyle()
-                paragraph.lineBreakMode = .byTruncatingTail
-                text.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: text.length))
-                let fileLabel = label("")
-                fileLabel.attributedStringValue = text
-                fileLabel.frame = NSRect(x: 16, y: y + 8, width: 196, height: 18)
-                fileLabel.setAccessibilityHidden(true)
-                button.toolTip = change.label
-                button.frame = NSRect(x: 8, y: y, width: 304, height: 34)
-                button.setAccessibilityLabel("\(change.status) \(change.label)")
-                if group == stream && change.path == (selectedPath ?? visibleSections.first?.path) {
-                    let selected = Surface(frame: NSRect(x: 8, y: y, width: 304, height: 34))
-                    selected.fill = Theme.selection; selected.wantsLayer = true; selected.layer?.cornerRadius = 12
-                    sidebarContent.addSubview(selected)
-                }
-                let (plus, minus) = sidebarCounts[group.rawValue + ":" + change.path] ?? (0, 0)
-                let counter = label("")
-                let numbers = NSMutableAttributedString()
-                if plus > 0 { numbers.append(NSAttributedString(string: "+\(plus)", attributes: [.font: Theme.ui, .foregroundColor: Theme.add])) }
-                if minus > 0 { numbers.append(NSAttributedString(string: (plus > 0 ? "  " : "") + "−\(minus)", attributes: [.font: Theme.ui, .foregroundColor: Theme.remove])) }
-                let countParagraph = NSMutableParagraphStyle()
-                countParagraph.alignment = .right
-                numbers.addAttribute(.paragraphStyle, value: countParagraph, range: NSRange(location: 0, length: numbers.length))
-                counter.attributedStringValue = numbers
-                counter.frame = NSRect(x: 228, y: y + 8, width: 76, height: 18)
-                counter.setAccessibilityHidden(true)
-                button.setAccessibilityHelp(numbers.string)
-                sidebarContent.addSubview(fileLabel)
-                sidebarContent.addSubview(counter)
-                sidebarContent.addSubview(button); y += 34
-            }
-        }
-        sidebarContent.frame.size = NSSize(width: 320, height: y)
     }
 
     func layout(animated: Bool = false) {
@@ -459,10 +396,13 @@ final class Workspace: NSWindowController, NSWindowDelegate {
         fullButton.image = NSImage(systemSymbolName: fullPath == nil ? "chevron.left.forwardslash.chevron.right" : "text.alignleft", accessibilityDescription: sourceAction)?.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .medium))
         let sidebarFrame = NSRect(x: 0, y: 60, width: side, height: max(0, size.height - 92))
         let readerFrame = NSRect(x: side, y: 60, width: max(0, size.width - side), height: max(0, size.height - 92))
-        let treeHeight = isRepository ? (fileTree?.collapsed == true ? 40 : max(40, sidebarFrame.height * 0.5)) : sidebarFrame.height
-        let changedHeight = max(0, sidebarFrame.height - treeHeight)
-        sidebarScroll.isHidden = !isRepository
-        let changedFrame = NSRect(x: 0, y: 0, width: 319, height: changedHeight)
+        let changedHeight: CGFloat = !isRepository ? 0 : changesCollapsed ? 40 : fileTree?.collapsed == true ? max(40, sidebarFrame.height - 40) : max(40, sidebarFrame.height * 0.5)
+        let treeHeight = isRepository ? (fileTree?.collapsed == true ? 40 : max(40, sidebarFrame.height - changedHeight)) : sidebarFrame.height
+        changedHeading.isHidden = !isRepository
+        changedHeading.frame = NSRect(x: 8, y: 4, width: 304, height: 32)
+        changedCount.frame = NSRect(x: 262, y: 8, width: 30, height: 18)
+        sidebarScroll.isHidden = !isRepository || changesCollapsed
+        let changedFrame = NSRect(x: 0, y: 40, width: 319, height: max(0, changedHeight - 40))
         fileTree?.topBorder = isRepository
         let treeFrame = NSRect(x: 0, y: changedHeight, width: 319, height: treeHeight)
         if animated && !Theme.reducedMotion {
@@ -526,7 +466,7 @@ final class Workspace: NSWindowController, NSWindowDelegate {
     func showMessage(_ text: String) {
         readerContent.subviews.filter { !($0 is FileSection) }.forEach { $0.removeFromSuperview() }
         let field = label(text, color: Theme.muted, font: Theme.message)
-        field.alignment = .center; readerContent.addSubview(field); layout()
+        field.alignment = .center; readerContent.addSubview(field)
     }
     func switchStream(_ value: SpaleCore.Stream) {
         scrollPositions[stateKey] = reader.contentView.bounds.origin

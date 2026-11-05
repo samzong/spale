@@ -67,7 +67,7 @@ final class FileTree: Surface, NSOutlineViewDataSource, NSOutlineViewDelegate {
     required init?(coder: NSCoder) { fatalError() }
     func updateHeading() {
         heading.title = ""
-        heading.image = NSImage(systemSymbolName: collapsed ? "chevron.right" : "chevron.down", accessibilityDescription: nil)
+        heading.image = Theme.disclosure(collapsed: collapsed)
         heading.imagePosition = .imageLeading
         heading.attributedTitle = NSAttributedString(string: "  FILES", attributes: [.font: Theme.ui, .foregroundColor: Theme.muted])
         heading.setAccessibilityLabel(collapsed ? "Expand files" : "Collapse files")
