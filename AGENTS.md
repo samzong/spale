@@ -18,11 +18,12 @@
 
 ## Release guidance
 
-- A release requires an explicit owner request. Use the version approved by the owner and the tag format `vX.Y.Z`.
+- A release requires an explicit owner request. Use the approved version and `vX.Y.Z`, `vX.Y.Z-alpha.N`, `vX.Y.Z-beta.N`, or `vX.Y.Z-rc.N`. The prerelease number is a nonnegative integer without leading zeros.
+- Keep both tracked `Info.plist` version fields equal to the release core `X.Y.Z`. Before tagging, run `git-cliff --use-branch-tags --tag v<version> --output CHANGELOG.md` and commit the version metadata and changelog. Release notes come from that tracked changelog. Publication stops if the matching section has no entries.
 - Fetch `origin/main` and tags with `git fetch origin main --tags`. Make sure that the release target belongs to `origin/main`.
 - Before tagging, inspect existing tags and releases for the target SHA. If one exists, report its state before continuing. Never delete, move, or recreate a pushed tag or release.
 - Run `make check` before tagging. Push the approved tag with `git push origin vX.Y.Z` only within the authorized release scope.
-- `.github/workflows/release.yml` checks and packages pull requests. A `v*` tag push also publishes `spale-vX.Y.Z-macos-arm64.zip` as the Latest release.
+- `.github/workflows/release.yml` checks and packages pull requests. A valid `v*` tag push also publishes `spale-v<version>-macos-arm64.zip`. Stable releases become Latest. Prereleases use `--prerelease` without `--latest`.
 - Release builds use `macos-26` and `make app SIGNING_IDENTITY=-` for ad-hoc signing. Local builds use the Apple Development identity described above.
 - Before claiming release completion, make sure that the tag workflow succeeded and the release asset exists. Inspect vtool output for SDK 26+ and minos 14.0, and lipo output for `arm64`.
 - The cask is `Casks/spale.rb` in `samzong/homebrew-tap`. Its `scan-outdated.yml` workflow scans every 30 minutes. After the release asset is published, tap automation opens a cask update PR. It merges the PR only when the checksum check, eligibility check, and `brew install --cask` smoke test pass. Pushing a release tag normally makes the new version available to Homebrew users automatically. If any check fails, the tap PR stays open.
